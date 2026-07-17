@@ -6,7 +6,7 @@ import { InstagramAdapter } from '../src/content/instagram.js';
 //   - desktop web  : peer link inside <main>, self in the left nav rail
 //   - mobile web   : peer link in a top bar OUTSIDE <main>, self in the bottom tab bar
 //
-// The mobile case is a real 2026-07-13 capture (peer "rabbit.38235632" at y=16, self "klrusha"
+// The mobile case is a real 2026-07-13 capture (peer "peer.demo" at y=16, self "demo1"
 // in the bottom tab bar at y=618). Before the structural-nav fix it stuck on "identifying this
 // chat" forever: <main>-based self/peer detection grabbed the peer as "self", so no peer remained
 // and isDirectChat() returned null. This is the regression guard for that.
@@ -39,21 +39,21 @@ function at(url: string, body: string) {
 describe('Instagram peer detection — mobile web (the "identifying this chat" bug)', () => {
   // Exactly the shape the capture showed.
   const mobile = `
-    <div id="topbar"><a role="link" href="/rabbit.38235632/" data-top="16">rabbit.38235632</a></div>
+    <div id="topbar"><a role="link" href="/peer.demo/" data-top="16">peer.demo</a></div>
     <div id="thread">
-      <a role="link" href="/rabbit.38235632" data-top="154"></a>
+      <a role="link" href="/peer.demo" data-top="154"></a>
       <div role="textbox" contenteditable="true" aria-label="Message" data-top="600"></div>
     </div>
     <nav id="tabbar">
       <a role="link" href="/explore/" data-top="618"></a>
       <a role="link" href="/reels/" data-top="618"></a>
-      <a role="link" href="/klrusha/" data-top="618"></a>
+      <a role="link" href="/demo1/" data-top="618"></a>
     </nav>`;
 
   it('reads the peer from the top bar, not the tab bar', () => {
     const ig = at('/direct/t/18068790812430202/', mobile);
-    expect(ig.peerHandle()).toBe('rabbit.38235632');
-    expect(ig.peerName()).toBe('rabbit.38235632');
+    expect(ig.peerHandle()).toBe('peer.demo');
+    expect(ig.peerName()).toBe('peer.demo');
   });
 
   it('confirms a 1:1 instead of stalling on null', () => {
@@ -65,13 +65,13 @@ describe('Instagram peer detection — mobile web (the "identifying this chat" b
     // If self-detection regressed to "first profile link", peerHandle would be the peer's own
     // handle excluded and this would go null or wrong.
     const ig = at('/direct/t/18068790812430202/', mobile);
-    expect(ig.peerHandle()).not.toBe('klrusha');
+    expect(ig.peerHandle()).not.toBe('demo1');
   });
 
   it('works when a semantic main excludes the header/composer and compact nav routes differ', () => {
     const ig = at(
       '/direct/t/18068790812430202/',
-      `<div id="topbar"><a role="link" href="/rabbit.38235632/" data-top="16">rabbit.38235632</a></div>
+      `<div id="topbar"><a role="link" href="/peer.demo/" data-top="16">peer.demo</a></div>
        <main id="scroller">
          <a role="link" href="/shared_post_author/" data-top="154">shared_post_author</a>
          <div dir="auto" data-top="210">ordinary message</div>
@@ -81,10 +81,10 @@ describe('Instagram peer detection — mobile web (the "identifying this chat" b
          <a role="link" href="/" data-top="618"></a>
          <a role="link" href="/direct/inbox/" data-top="618"></a>
          <a role="link" href="/reels/" data-top="618"></a>
-         <a role="link" href="/klrusha/" data-top="618"></a>
+         <a role="link" href="/demo1/" data-top="618"></a>
        </nav>`,
     );
-    expect(ig.peerHandle()).toBe('rabbit.38235632');
+    expect(ig.peerHandle()).toBe('peer.demo');
     expect(ig.isDirectChat()).toBe(true);
     expect(ig.readComposer()).toBe('draft');
   });
@@ -92,12 +92,12 @@ describe('Instagram peer detection — mobile web (the "identifying this chat" b
   it('does not exclude the peer as self when only one recognizable nav route is mounted', () => {
     const ig = at(
       '/direct/t/18068790812430202/',
-      `<div id="topbar"><a role="link" href="/rabbit.38235632/" data-top="16">rabbit</a></div>
-       <main><a role="link" href="/rabbit.38235632/" data-top="154"></a></main>
+      `<div id="topbar"><a role="link" href="/peer.demo/" data-top="16">rabbit</a></div>
+       <main><a role="link" href="/peer.demo/" data-top="154"></a></main>
        <textarea placeholder="Message..." data-top="560"></textarea>
-       <nav><a role="link" href="/reels/" data-top="618"></a><a role="link" href="/klrusha/" data-top="618"></a></nav>`,
+       <nav><a role="link" href="/reels/" data-top="618"></a><a role="link" href="/demo1/" data-top="618"></a></nav>`,
     );
-    expect(ig.peerHandle()).toBe('rabbit.38235632');
+    expect(ig.peerHandle()).toBe('peer.demo');
     expect(ig.isDirectChat()).toBe(true);
   });
 
@@ -105,10 +105,10 @@ describe('Instagram peer detection — mobile web (the "identifying this chat" b
     const ig = at(
       '/direct/t/18068790812430202/',
       `<a role="link" href="https://example.com/im-not-the-peer" data-top="4">external</a>
-       <a role="link" href="/rabbit.38235632/" data-top="16">rabbit</a>
+       <a role="link" href="/peer.demo/" data-top="16">rabbit</a>
        <textarea placeholder="Message..." data-top="560"></textarea>`,
     );
-    expect(ig.peerHandle()).toBe('rabbit.38235632');
+    expect(ig.peerHandle()).toBe('peer.demo');
   });
 });
 
@@ -118,19 +118,19 @@ describe('Instagram peer detection — desktop web (no regression)', () => {
     <nav id="rail">
       <a role="link" href="/explore/" data-top="200"></a>
       <a role="link" href="/reels/" data-top="260"></a>
-      <a role="link" href="/klrusha/" data-top="700"></a>
+      <a role="link" href="/demo1/" data-top="700"></a>
     </nav>
     <main>
-      <div id="header"><a role="link" href="/rabbit.38235632/" data-top="16">rabbit.38235632</a></div>
+      <div id="header"><a role="link" href="/peer.demo/" data-top="16">peer.demo</a></div>
       <div id="thread">
-        <a role="link" href="/rabbit.38235632" data-top="154"></a>
+        <a role="link" href="/peer.demo" data-top="154"></a>
         <div role="textbox" contenteditable="true" aria-label="Message" data-top="600"></div>
       </div>
     </main>`;
 
   it('still finds the peer inside <main> and confirms the 1:1', () => {
     const ig = at('/direct/t/18068790812430202/', desktop);
-    expect(ig.peerHandle()).toBe('rabbit.38235632');
+    expect(ig.peerHandle()).toBe('peer.demo');
     expect(ig.isDirectChat()).toBe(true);
   });
 });
@@ -144,7 +144,7 @@ describe('Instagram peer detection — group and non-DM stay safe', () => {
          <a role="link" href="/bob/" data-top="16">bob</a>
        </div>
        <div role="textbox" contenteditable="true" aria-label="Message" data-top="600"></div>
-       <nav><a role="link" href="/explore/" data-top="618"></a><a role="link" href="/reels/" data-top="618"></a><a role="link" href="/klrusha/" data-top="618"></a></nav>`,
+       <nav><a role="link" href="/explore/" data-top="618"></a><a role="link" href="/reels/" data-top="618"></a><a role="link" href="/demo1/" data-top="618"></a></nav>`,
     );
     expect(ig.isDirectChat()).toBe(false); // two peers on the header row → not 1:1
   });
@@ -152,7 +152,7 @@ describe('Instagram peer detection — group and non-DM stay safe', () => {
   it('outside a DM thread there is no peer at all', () => {
     const ig = at(
       '/direct/inbox/',
-      `<nav><a role="link" href="/explore/" data-top="618"></a><a role="link" href="/reels/" data-top="618"></a><a role="link" href="/klrusha/" data-top="618"></a></nav>`,
+      `<nav><a role="link" href="/explore/" data-top="618"></a><a role="link" href="/reels/" data-top="618"></a><a role="link" href="/demo1/" data-top="618"></a></nav>`,
     );
     expect(ig.isDirectChat()).toBe(false); // no /direct/t/<id> → definitely not a 1:1
     expect(ig.peerHandle()).toBeNull();

@@ -30,7 +30,7 @@ name (your phone's name for someone is not their phone's name for you). Where ea
 stands on that:
 
 - **Telegram — already permanent, no work needed.** `threadId` is the numeric `data-peer-id`
-  (e.g. `5293449953`), which is Telegram's GLOBAL user id: identical for every client, present
+  (e.g. `1234567890`), which is Telegram's GLOBAL user id: identical for every client, present
   in the DOM, not a contact-book artifact. The visible peer name is cosmetic only. `peerHandle`
   (the `@username` for directory discovery) and the peer's phone are NOT in the chat-header DOM;
   they are read from Telegram Web's own IndexedDB keyed on the peer id (see provenance below), so
@@ -66,7 +66,7 @@ structure) and never on obfuscated/hashed class names.
   this chat", sends paused) and `peerHandle()` never resolved (no directory lookup ever ran).
   This was the "can't detect the other person's handle / no blob on Instagram" report.
 - Peer is read from the conversation top bar's profile anchor: `a[role="link"]` whose href is
-  a single path segment (e.g. `/klrusha/`), topmost wins. The href is the account identifier;
+  a single path segment (e.g. `/demo2/`), topmost wins. The href is the account identifier;
   the anchor's first text line is the display name. `aria-label` ("Open the profile page of X")
   is localized — do not parse it.
 - **Self/peer are split by the NAV CHROME, not by `<main>` (fixed 2026-07-13, mobile web).** The
@@ -77,7 +77,7 @@ structure) and never on obfuscated/hashed class names.
   "identifying this chat" forever — the exact iOS-Safari report. The nav (left rail on desktop,
   bottom tab bar on mobile) is now found by STRUCTURE: the container holding the `/explore/` and
   `/reels/` route links. Self is the profile link inside it; the peer is never in it. Verified
-  against a real mobile-web DM capture (peer in the top bar at y=16, self `/klrusha/` in the bottom
+  against a real mobile-web DM capture (peer in the top bar at y=16, self `/demo1/` in the bottom
   tab bar at y=618). Regression-pinned in `test/instagram-peer.test.ts` (desktop + mobile + group +
   non-DM, jsdom with fed geometry). `peerHeaderLinks()` prefers `<main>` (byte-identical desktop)
   and falls back to the whole document with the nav excluded (mobile).
@@ -118,7 +118,7 @@ structure) and never on obfuscated/hashed class names.
   is still preferred on the NEXT open, when real history resolves it before any send.
 - Peer name: the header's `span[title]` is gone; use `#main header span[dir="auto"]` — **high**.
 - **Identity comes from IndexedDB.** WhatsApp REMOVED the JID from the DOM: a message `data-id`
-  is now a bare msg id (`3A74AF56330BCB7852C`), no `@c.us`/`@g.us` on the page. The real phone
+  is now a bare msg id (`3A0123456789ABCDEF0`), no `@c.us`/`@g.us` on the page. The real phone
   number lives in the `model-storage` IndexedDB `message` records (see the Permanent-identity
   roadmap above for the full path). The adapter reads it in-process:
   - `peerHandle` / `threadId` = the peer's PHONE NUMBER, mapped DOM `data-id` → `message` record
@@ -140,7 +140,7 @@ Instagram, so structure/ARIA only, never classes):
 - `threadId` = the numeric conversation id in the URL, `/t/(\d+)` (covers `/t/` and
   `/e2ee/t/`) — stable per conversation. **high**.
 - `peerHandle` = the peer's GLOBAL Facebook user id, read from a scoped profile link
-  `[role="main"] a[href*="facebook.com/<id>"]` (e.g. `100058152965713`). A permanent, mutual
+  `[role="main"] a[href*="facebook.com/<id>"]` (e.g. `100001234567890`). A permanent, mutual
   identifier — the same for everyone — so directory discovery keys on something real, not a
   contact name. `peerName` is the same anchor's text (cosmetic). **high**.
 - `isDirectChat` = count of DISTINCT peer ids inside `[role="main"]` (your own id never appears
@@ -167,7 +167,7 @@ Ajaxy/telegram-tt; their class names are hand-authored, not build-hashed):
   `.bubble:not(.service):not(.is-date) .message`, `peerName` `.chat-info .peer-title`, numeric
   identity from `data-peer-id` — **all confirmed hitting on the current build** (a 1:1 resolved
   `direct:true`, glyph rendered). WebK now also puts the numeric peer id in the URL hash
-  (`#5293449953`); the adapter's DOM `data-peer-id` read is unaffected. `peerHandle` (the
+  (`#1234567890`); the adapter's DOM `data-peer-id` read is unaffected. `peerHandle` (the
   `@username` for directory discovery) still comes from a `#@username` hash or a `t.me/` link
   and is only present for peers WITH a public username — not yet re-verified against a
   username peer, so discovery on Telegram is untested end to end (detection + manual encryption
@@ -262,12 +262,6 @@ fix in the `SELECTORS` block. It only reads the DOM — it sends nothing and cha
 A healthy result has `ekko loaded: true`, the supported client, `composer`, `sendButton`,
 and the platform's message-text count all ≥ 1, a real `peerName`, and `isDirect: true` in a 1:1 chat. The
 first failing row is the cause: `ekko loaded: false` → reload the tab (content scripts only
-inject on page load); any selector `0` or `(missing)` → send me the table and I'll patch
-the relevant WebK/WebA selector set.
-
-## Try the protocol without installing anything
-
-`npm run demo` bundles `src/core` (the real crypto), starts the directory server in memory,
-and serves an interactive page at http://127.0.0.1:5555 that runs the whole flow —
-publish a handle, look it up, post-quantum handshake, seal and open messages — live in the
-browser. It's the fastest way to confirm the core works, independent of any messenger DOM.
+inject on page load); any selector `0` or `(missing)` → open an
+[adapter breakage issue](https://github.com/useekko/ekko-core/issues/new?template=adapter_breakage.yml)
+with the table and the relevant WebK/WebA selector set gets patched.

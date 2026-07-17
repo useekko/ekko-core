@@ -973,10 +973,10 @@ describe('reconcileContactKeys — a re-keyed peer folds into one contact', () =
     ({ contacts, threadBindings, sessions } as unknown as Parameters<typeof reconcileContactKeys>[0]);
 
   it('LEGACY (no userId): folds by the globally-unique @handle + a shared linked social', () => {
-    // The exact reported state: an old-key @kirill {instagram: klrusha} beside the current-key
-    // @kirill {instagram: klrusha, telegram: wolfq7}. A chat is bound to the old key.
-    const orphan = mkContact(1, '@kirill', { handles: { instagram: 'klrusha' } });
-    const survivor = mkContact(2, '@kirill', { handles: { instagram: 'klrusha', telegram: 'wolfq7' } });
+    // The exact reported state: an old-key @kirill {instagram: demo1} beside the current-key
+    // @kirill {instagram: demo1, telegram: demotg}. A chat is bound to the old key.
+    const orphan = mkContact(1, '@kirill', { handles: { instagram: 'demo1' } });
+    const survivor = mkContact(2, '@kirill', { handles: { instagram: 'demo1', telegram: 'demotg' } });
     const v = mkVault([orphan, survivor], { 'telegram:5293': fpHex(1) }, [{ peerFingerprint: fp(1) }, { peerFingerprint: fp(2) }]);
 
     expect(reconcileContactKeys(v, survivor as never, 'kirill-uuid', 'kirill')).toBe(true);
@@ -999,7 +999,7 @@ describe('reconcileContactKeys — a re-keyed peer folds into one contact', () =
 
   it('SAFETY: same @handle label but no shared social and no userId is NOT folded (handle reassignment)', () => {
     const stranger = mkContact(1, '@kirill', { handles: { instagram: 'someone_else' } });
-    const survivor = mkContact(2, '@kirill', { handles: { instagram: 'klrusha' } });
+    const survivor = mkContact(2, '@kirill', { handles: { instagram: 'demo1' } });
     const v = mkVault([stranger, survivor]);
 
     reconcileContactKeys(v, survivor as never, 'kirill-uuid', 'kirill');
@@ -1007,8 +1007,8 @@ describe('reconcileContactKeys — a re-keyed peer folds into one contact', () =
   });
 
   it('SAFETY: never matches a user-renamed legacy contact by handle (only the system @handle label)', () => {
-    const renamed = mkContact(1, 'Kirill (old phone)', { handles: { instagram: 'klrusha' } }); // shares a social, but renamed
-    const survivor = mkContact(2, '@kirill', { handles: { instagram: 'klrusha' } });
+    const renamed = mkContact(1, 'Kirill (old phone)', { handles: { instagram: 'demo1' } }); // shares a social, but renamed
+    const survivor = mkContact(2, '@kirill', { handles: { instagram: 'demo1' } });
     const v = mkVault([renamed, survivor]);
 
     reconcileContactKeys(v, survivor as never, 'kirill-uuid', 'kirill');

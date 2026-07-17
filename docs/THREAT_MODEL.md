@@ -89,6 +89,6 @@ Where that stands in the product (2026-07-15): the account flow is the primary t
 - **Conspicuousness.** Base64 ciphertext blobs may trip spam or automation heuristics. Personal-use volume keeps this low but nonzero.
 - **DOM drift.** Messaging sites reshape their DOM regularly; an adapter may break until its `SELECTORS` block is re-patched. Encryption correctness is unaffected — only the in-page convenience layer.
 
-## Closed source, for now
+## Open source, not yet audited
 
-The code is proprietary in v1. That is a real trust cost for a cryptography tool: independent researchers cannot yet audit the implementation. Mitigations: this protocol spec and threat model are public, the crypto is standard audited primitives (noble), and an external audit is planned before any broad launch. The licensing decision is explicitly revisitable.
+The client is GPL-3.0 and the directory server AGPL-3.0; anyone can read, build, and diff the code. What is still missing is an external audit: no independent cryptographer has reviewed this implementation, and "open" is not the same as "reviewed". Mitigations: the crypto is standard audited primitives (noble), the protocol spec and this threat model are public, and an external audit is planned before any broad launch.

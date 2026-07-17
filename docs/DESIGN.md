@@ -5,6 +5,11 @@ studied references (a quiet editorial "lab" site and a technical hardware-lab si
 original: Ekko's identity is the **echo** — concentric rings, and words that dissolve into
 ciphertext.
 
+> This repo carries the extension surfaces. `site/` and `docs/brand/` paths below live in
+> the site's own tree, and `ios/…` paths in
+> [ekko-ios](https://github.com/useekko/ekko-ios) — they're referenced here so the
+> one-system rules stay in one doc.
+
 ## Voice
 
 Serious privacy lab, quietly rebellious. Plain sentences, no exclamation marks, no
@@ -83,7 +88,7 @@ column stays alive there even though the web surfaces ship light-only.
   hairline border that leads with accent. The archived message-path pipeline used a flat,
   inert platform node on purpose — alive endpoints, dead courier. It remains in design
   history for a future protocol diagram, but no longer appears on About.
-- **Glossy accent CTA** — the primary button is the product: indigo gradient lit from
+- **Glossy accent CTA** — the primary button is the product: coral gradient lit from
   above, accent bloom below, 1px lift on hover. Secondary stays a quiet ghost.
 - **Chip carousel** — "works with" platforms as glass pills: brand-color icon + name,
   a gradient "Live" badge on what's shipped. Colorful on purpose; it's the one
@@ -97,7 +102,7 @@ column stays alive there even though the web surfaces ship light-only.
   step, each performing the exact gesture its sentence describes: a handle types itself
   and is claimed, three people connect to your hub through echo rings, an Ekko blob
   surfaces at the end of a message box and the words leave as ciphertext. Glass slab,
-  one drifting indigo bloom behind it, brand gradient on the live objects only. Rules
+  one drifting accent bloom behind it, brand gradient on the live objects only. Rules
   that keep them honest: **pure CSS** keyed off `.steps.is-in` (no per-art JS), a
   **different loop length per card** so they drift instead of beating in lockstep, and a
   **resting state that equals the finished state** — with animation off (no-JS,

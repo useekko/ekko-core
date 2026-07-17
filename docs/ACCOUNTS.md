@@ -16,6 +16,9 @@ owner invited it.
 The Supabase URL and anon key ship inside the extension and the app. They are public by design;
 row-level security is the enforcement and the session JWT is the identity.
 
+> `ios/…` paths in this doc live in [ekko-ios](https://github.com/useekko/ekko-ios);
+> `src/…` paths live here.
+
 ## Client constants
 
 `SUPABASE_URL` and the anon key. Both already ship inside the extension and the app

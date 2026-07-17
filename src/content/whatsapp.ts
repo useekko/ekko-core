@@ -11,7 +11,7 @@
 // button is replaced by the mic, which is also how we confirm a send cleared.
 //
 // IDENTITY (verified live against web.whatsapp.com 2026-07-12): WhatsApp REMOVED the JID from
-// the visible DOM. A message's data-id is now a bare msg id ("3A74AF56330BCB7852C") and no
+// the visible DOM. A message's data-id is now a bare msg id ("3A0123456789ABCDEF0") and no
 // @c.us/@g.us appears on the page. But the real PHONE NUMBER is still on the origin — in the
 // `model-storage` IndexedDB, which a content script reads in-process (same origin, no network).
 // The `message` store's records carry the phone in their `from`/`to` (`<digits>@c.us`), and

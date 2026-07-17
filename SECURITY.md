@@ -18,7 +18,7 @@ timing with you.
 ## Scope
 
 - The browser extension (`src/`) — crypto core, adapters, popup, background.
-- The iOS app and keyboard (`ios/`).
+- The iOS app and keyboard ([ekko-ios](https://github.com/useekko/ekko-ios)).
 - The directory server (`server/`).
 - The protocol (`docs/PROTOCOL.md`) and threat model (`docs/THREAT_MODEL.md`) — flaws in
   what we claim, not just in what we run.

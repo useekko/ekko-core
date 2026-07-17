@@ -27,7 +27,7 @@ const SELECTORS = {
   // nothing, so isDirectChat() sat at null forever ("identifying this chat", sends paused)
   // and peerHandle() never resolved, so the directory was never asked whether the peer is
   // on Ekko. The peer link is now an ordinary profile anchor in the conversation top bar:
-  //   <a role="link" href="/klrusha/" aria-label="Open the profile page of klrusha">
+  //   <a role="link" href="/demo1/" aria-label="Open the profile page of demo1">
   // The href is the account identifier; do not parse the aria-label (it is localized).
   profileLink: 'a[role="link"]',
   sendButtonText: 'Send',

@@ -78,7 +78,7 @@ describe('WhatsApp adapter — DOM parsing', () => {
   });
 
   it('threadId stays null (identifying) until the phone lookup has been TRIED, then commits to the name binding', async () => {
-    const wa = waChat({ name: 'Мая П', aria: 'Type a message to Мая П', senders: ['Мая П'], msgIds: ['3A74AF56330BCB7852C'] });
+    const wa = waChat({ name: 'Мая П', aria: 'Type a message to Мая П', senders: ['Мая П'], msgIds: ['3A0123456789ABCDEF0'] });
     // First ask kicks off the async IndexedDB read; nothing is bound yet.
     expect(wa.threadId()).toBe(null);
     await tick(); // jsdom has no indexedDB → the lookup resolves to "no phone" for every msgid
@@ -97,7 +97,7 @@ describe('WhatsApp adapter — DOM parsing', () => {
     // send. The controller pins the thread across a multi-part send and aborted on the change
     // ("1 of 2 parts went out"), stranding the peer unable to decrypt. threadId now pins the
     // key for the open chat.
-    const wa = waChat({ name: 'Maya', aria: 'Type a message to Maya', senders: ['Maya'], msgIds: ['3A74AF56330BCB7852C'] });
+    const wa = waChat({ name: 'Maya', aria: 'Type a message to Maya', senders: ['Maya'], msgIds: ['3A0123456789ABCDEF0'] });
     expect(wa.threadId()).toBe(null); // kicks off the async IndexedDB read
     await tick(); // jsdom has no indexedDB → resolves to "no phone" → the name binding
     await tick();
@@ -115,7 +115,7 @@ describe('WhatsApp adapter — DOM parsing', () => {
   });
 
   it('releases the pinned key when the chat actually changes', async () => {
-    const wa = waChat({ name: 'Maya', aria: 'Type a message to Maya', senders: ['Maya'], msgIds: ['3A74AF56330BCB7852C'] });
+    const wa = waChat({ name: 'Maya', aria: 'Type a message to Maya', senders: ['Maya'], msgIds: ['3A0123456789ABCDEF0'] });
     expect(wa.threadId()).toBe(null); // kicks off the async IndexedDB read
     await tick();
     await tick();
@@ -353,11 +353,11 @@ describe('Messenger adapter — DOM parsing', () => {
 
   it('one distinct profile id = 1:1; the topmost (header) link names the peer', () => {
     const m = msgrChat([
-      { id: '100058152965713', name: 'Matteo Negri', top: 20 },
-      { id: '100058152965713', name: '', top: 300 }, // same person again, deeper in the log
+      { id: '100001234567890', name: 'Matteo Negri', top: 20 },
+      { id: '100001234567890', name: '', top: 300 }, // same person again, deeper in the log
     ]);
     expect(m.isDirectChat()).toBe(true);
-    expect(m.peerHandle()).toBe('100058152965713');
+    expect(m.peerHandle()).toBe('100001234567890');
     expect(m.peerName()).toBe('Matteo Negri');
   });
 
@@ -376,7 +376,7 @@ describe('Messenger adapter — DOM parsing', () => {
   });
 
   it('a bare-avatar header still yields a name via the composer aria, across locales', () => {
-    const m = msgrChat([{ id: '100058152965713', top: 20 }], { aria: 'Écrire à Matteo' });
+    const m = msgrChat([{ id: '100001234567890', top: 20 }], { aria: 'Écrire à Matteo' });
     expect(m.peerName()).toBe('Matteo');
   });
 });
@@ -393,7 +393,7 @@ const msgrComposer = () =>
   document.querySelector<HTMLElement>('[role="main"] [contenteditable="true"][role="textbox"]');
 
 const msgrSendChat = () => {
-  const m = msgrChat([{ id: '100058152965713', name: 'Matteo Negri', top: 20 }]);
+  const m = msgrChat([{ id: '100001234567890', name: 'Matteo Negri', top: 20 }]);
   const send = document.createElement('div');
   send.setAttribute('role', 'button');
   send.setAttribute('aria-label', 'Send');

@@ -511,8 +511,8 @@ describe('controller end-to-end', () => {
   it('binds the chat automatically when a contact’s account-linked handle matches', async () => {
     const a = new FakeAdapter();
     a.peer = 'Kirill Vasilev'; // display name matches NO contact label
-    a.handle = 'klrusha'; // …but the @handle is a linked social of an account connection
-    const KIRILL = { fingerprint: 'f1', label: '@kirill', verified: false, safetyNumber: '0', fingerprintHex: '0', handles: { fake: 'klrusha', whatsapp: '15103652939' } };
+    a.handle = 'demo1'; // …but the @handle is a linked social of an account connection
+    const KIRILL = { fingerprint: 'f1', label: '@kirill', verified: false, safetyNumber: '0', fingerprintHex: '0', handles: { fake: 'demo1', whatsapp: '15550100001' } };
     let bound: string | null = null;
     let resolved = false;
     const ctrl = new Controller(a, async (req) => {
@@ -539,8 +539,8 @@ describe('controller end-to-end', () => {
   it('degrades to a one-click offer when the broker refuses the auto-bind (user opted out)', async () => {
     const a = new FakeAdapter();
     a.peer = 'Kirill Vasilev';
-    a.handle = 'klrusha';
-    const KIRILL = { fingerprint: 'f1', label: '@kirill', verified: false, safetyNumber: '0', fingerprintHex: '0', handles: { fake: 'klrusha' } };
+    a.handle = 'demo1';
+    const KIRILL = { fingerprint: 'f1', label: '@kirill', verified: false, safetyNumber: '0', fingerprintHex: '0', handles: { fake: 'demo1' } };
     let bound: string | null = null;
     const ctrl = new Controller(a, async (req) => {
       if (req.type === 'threadContact') return { contact: bound === thread() ? KIRILL : null };
@@ -571,7 +571,7 @@ describe('controller end-to-end', () => {
   it('re-enables from the glyph after a turn-off even when the label is not the display name', async () => {
     const a = new FakeAdapter();
     a.peer = 'Kirill Vasilev';
-    a.handle = 'klrusha';
+    a.handle = 'demo1';
     const KIRILL = { fingerprint: 'f1', label: '@kirill', verified: false, safetyNumber: '0', fingerprintHex: '0' };
     let bound: string | null = thread();
     const ctrl = new Controller(a, async (req) => {
