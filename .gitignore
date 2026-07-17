@@ -1,0 +1,19 @@
+node_modules/
+dist/
+artifacts/
+*.zip
+.DS_Store
+
+# Credentials — never commit
+.env
+.env.*
+!.env.example
+
+# A local directory-server run's SQLite lives here (server/README quickstart)
+server/data/
+
+# mac-safari.sh / ios-safari-sync.mjs output (the generated Safari payload)
+ios/
+
+# Wrangler/dev leftovers that must never land
+.dev.vars
