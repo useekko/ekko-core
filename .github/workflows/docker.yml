@@ -1,0 +1,33 @@
+# Publish the directory server image to GHCR so self-hosters get a one-liner instead of a
+# checkout + build. The OCI source label links the package to this repo's Packages sidebar.
+name: Docker
+on:
+  push:
+    branches: [main]
+    paths: ['server/**']
+  workflow_dispatch:
+permissions:
+  contents: read
+  packages: write
+jobs:
+  publish:
+    if: github.repository == 'useekko/ekko-core'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: server
+          push: true
+          tags: |
+            ghcr.io/useekko/ekko-directory:latest
+            ghcr.io/useekko/ekko-directory:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.source=https://github.com/useekko/ekko-core
+            org.opencontainers.image.description=Ekko key directory — self-hostable, zero npm dependencies, AGPL-3.0
+            org.opencontainers.image.licenses=AGPL-3.0-only

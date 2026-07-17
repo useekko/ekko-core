@@ -34,7 +34,15 @@ npm test            # 27 tests, zero deps
 node src/index.mjs  # → http://127.0.0.1:8787 (DB at ./data/directory.db)
 ```
 
-Or Docker:
+Or the prebuilt image (published from this repo by the Docker workflow):
+
+```bash
+docker run -d --name ekko-directory --restart unless-stopped \
+  -p 127.0.0.1:8787:8787 -v ekko-directory-data:/data \
+  ghcr.io/useekko/ekko-directory:latest
+```
+
+Or build it yourself with compose:
 
 ```bash
 docker volume create resonance-data   # compose pins an external volume so it can never
