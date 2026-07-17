@@ -2,8 +2,8 @@
 
 Supabase Auth (Apple + Google + emailed 8-digit code), profiles with claimable @handles and a published
 PUBLIC key, handle search, connection requests, post-quantum session setup, and linked socials. All of it behind row-level
-security, with **registration disabled** at the project level: an account exists only because the
-owner invited it.
+security. Registration is open during the public alpha; private rows remain owner-scoped through
+row-level security.
 
 > **Two "handle" systems, deliberately.** This one (Supabase: `profiles`, `connections`,
 > `account_handles`) is the account. The standalone key directory is a separate service. They share
@@ -49,13 +49,11 @@ The Apple provider's client id is the **app bundle id** (`app.useekko.ios`) — 
 it against the token's audience, so there is no client secret anywhere (a secret only exists for
 web "Sign in with Apple", which is not offered). Nonce discipline: the Apple request is given
 `SHA256(nonce)`, Supabase is given the raw value and hashes it to match — `EkkoAccount.makeNonce()`
-returns the pair. Two invite-only consequences worth knowing: a device signed out of iCloud cannot
-use the button at all, and **Hide My Email** yields a relay address that will read as uninvited
-while registration is closed — invite the relay address, or have the user share their real email
-(Supabase links providers by email, so a shared address lands on the same account as Google and
-the code).
+returns the pair. A device signed out of iCloud cannot use the button at all. **Hide My Email** may
+create a separate account from Google or emailed-code sign-in when the provider addresses differ;
+Supabase links provider identities only when their verified email addresses match.
 
-**Google** (once the provider is enabled): `ASWebAuthenticationSession` with
+**Google**: `ASWebAuthenticationSession` with
 `callbackURLScheme: "ekko"` on
 
 ```
@@ -74,7 +72,7 @@ allowlist).
 ```bash
 curl -X POST "$AUTH/otp?redirect_to=ekko%3A%2F%2Fauth-callback" \
   -H "apikey: $ANON" -H 'content-type: application/json' \
-  -d '{"email":"person@example.com","create_user":false}'
+  -d '{"email":"person@example.com","create_user":true}'
 ```
 
 The email (from Ekko via Resend, subject "Your Ekko sign-in link") carries the link
@@ -176,7 +174,7 @@ curl -X DELETE "$REST/account_handles?id=eq.<uuid>" -H ...
 
 | Signal | Meaning | UI copy |
 |---|---|---|
-| `error_code: signup_disabled` / `otp_disabled` | email not invited | "This demo is invite-only." |
+| `error_code: signup_disabled` / `otp_disabled` | emergency registration gate is closed | "Sign-up is temporarily unavailable." |
 | `over_email_send_rate_limit` / 429 | per-address 60s throttle or 30/hr cap | "Too many emails just now. Wait a minute and try again." |
 | 409 on profiles | handle taken | "That handle is taken." |
 | 409 on connections | edge already exists (either direction) | "A request already exists between you." |

@@ -26,7 +26,6 @@ export interface AccountSession {
 
 export class AccountError extends Error {}
 
-/** The membership oracle is deliberate for a private alpha: an uninvited email learns it is one. */
 function mapError(status: number, body: unknown): AccountError {
   const o = (body ?? {}) as Record<string, unknown>;
   const text = ['error_code', 'code', 'msg', 'message', 'error_description']
@@ -34,7 +33,7 @@ function mapError(status: number, body: unknown): AccountError {
     .join(' ')
     .toLowerCase();
   if (text.includes('signup') || text.includes('otp_disabled')) {
-    return new AccountError('This alpha is invite only.');
+    return new AccountError('Sign-up is temporarily unavailable.');
   }
   if (text.includes('expired') || text.includes('otp') || text.includes('token')) {
     return new AccountError('That code expired. Ask for a fresh one.');
@@ -70,12 +69,11 @@ function sessionFrom(o: Record<string, unknown>): AccountSession {
   return { accessToken, refreshToken, expiresAt: Date.now() + expiresIn * 1000 };
 }
 
-/** Emails a one-time link AND an 8-digit code to an INVITED address. `create_user: false` is what
- *  keeps registration closed: a stranger gets `signup_disabled`, not an account. */
+/** Emails a one-time link AND an 8-digit code. New addresses create public-alpha accounts. */
 export async function sendCode(email: string): Promise<void> {
   await call('/auth/v1/otp', {
     method: 'POST',
-    body: JSON.stringify({ email, create_user: false }),
+    body: JSON.stringify({ email, create_user: true }),
   });
 }
 
