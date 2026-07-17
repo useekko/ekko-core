@@ -1473,7 +1473,7 @@ async function handle(req: Req, sender?: chrome.runtime.MessageSender): Promise<
       await ext.storage.session.set({ [ACCOUNT_AWAIT]: Date.now() });
       const url =
         `${SUPABASE_URL}/auth/v1/authorize?provider=google&redirect_to=` +
-        encodeURIComponent(ACCOUNT_PAGE);
+        encodeURIComponent(ACCOUNT_PAGE) + '&prompt=select_account';
       await ext.tabs.create({ url });
       return { ok: true };
     }
