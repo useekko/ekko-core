@@ -1,0 +1,38 @@
+# Tag v* -> build, test, stage a DRAFT release with the zips attached.
+# A human writes the notes and clicks publish. If the release already exists
+# (e.g. it was hand-crafted before the tag landed), this touches nothing:
+# never overwrite a curated release's assets with a rebuild from a later tree.
+name: Release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+jobs:
+  release:
+    if: github.repository == 'useekko/ekko-core'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Stop if the release already exists
+        id: existing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "release $GITHUB_REF_NAME already exists; leaving it alone"
+          fi
+      - uses: actions/setup-node@v4
+        if: steps.existing.outputs.skip != 'true'
+        with:
+          node-version: 22
+          cache: npm
+      - if: steps.existing.outputs.skip != 'true'
+        run: npm ci && npm test && npm run package && npm run package:firefox
+      - if: steps.existing.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --draft --generate-notes \
+            --title "Ekko $GITHUB_REF_NAME" artifacts/*.zip

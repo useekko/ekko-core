@@ -1,0 +1,30 @@
+# Runs the directory bound to localhost only; the host's existing nginx terminates TLS and
+# proxies in. Data persists in a named volume. Nothing else on the box is touched.
+services:
+  directory:
+    build: .
+    image: resonance-directory:latest
+    container_name: resonance-directory
+    restart: unless-stopped
+    ports:
+      # BIND_IP restricts exposure. Default localhost; set to the Tailscale IP (in .env) to
+      # reach it over the Tailnet only, or use 127.0.0.1 when nginx fronts it.
+      - "${BIND_IP:-127.0.0.1}:8787:8787"
+    environment:
+      # Both optional (feature off when empty) — set them in an .env file next to this
+      # compose file. ADMIN_TOKEN enables /admin/* attestation (never proxied by nginx);
+      # TELEGRAM_BOT_TOKEN (from @BotFather) enables Telegram ownership verification.
+      - ADMIN_TOKEN=${ADMIN_TOKEN:-}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+    volumes:
+      - resonance-data:/data
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8787/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+volumes:
+  resonance-data:
+    external: true
+    name: resonance-data

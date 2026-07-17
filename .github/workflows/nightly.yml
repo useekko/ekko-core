@@ -1,0 +1,51 @@
+# Rolling "nightly" prerelease: one release, one tag, assets replaced in place.
+# Skips entirely when main hasn't moved since the last nightly.
+name: Nightly
+on:
+  schedule:
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  nightly:
+    if: github.repository == 'useekko/ekko-core'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Skip if main hasn't moved
+        id: fresh
+        run: |
+          if [ "$(git rev-parse -q --verify refs/tags/nightly || true)" = "$(git rev-parse HEAD)" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "nightly tag already points at HEAD; nothing to build"
+          fi
+      - uses: actions/setup-node@v4
+        if: steps.fresh.outputs.skip != 'true'
+        with:
+          node-version: 22
+          cache: npm
+      - if: steps.fresh.outputs.skip != 'true'
+        run: npm ci
+      - if: steps.fresh.outputs.skip != 'true'
+        run: npm test
+      - if: steps.fresh.outputs.skip != 'true'
+        run: npm run package && npm run package:firefox
+      - name: Publish rolling prerelease
+        if: steps.fresh.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          cp artifacts/ekko-*-chromium.zip ekko-nightly-chromium.zip
+          cp artifacts/ekko-*-firefox.zip ekko-nightly-firefox.zip
+          SUMS=$(shasum -a 256 ekko-nightly-*.zip | awk '{print "- `" $2 "` sha256 `" $1 "`"}')
+          NOTES=$(printf 'Rolling build of `main` @ %s (%s).\n\nUnzip, then chrome://extensions -> Developer mode -> Load unpacked -> pick the unzipped folder. The Firefox zip is experimental.\n\n%s\n\nNightlies are for testing: expect rough edges. Stable installs live in the versioned releases.' "${GITHUB_SHA::7}" "$(date -u +%F)" "$SUMS")
+          git tag -f nightly && git push -f origin nightly
+          if ! gh release view nightly >/dev/null 2>&1; then
+            gh release create nightly --prerelease --title "Nightly" --notes "placeholder"
+          fi
+          gh release upload nightly ekko-nightly-chromium.zip ekko-nightly-firefox.zip --clobber
+          gh release edit nightly --prerelease --title "Nightly ($(date -u +%F))" --notes "$NOTES"

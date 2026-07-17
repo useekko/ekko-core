@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f6f7fb" />
+    <title>Welcome to Ekko</title>
+    <style>
+      /* Tokens + components shared with popup/popup.html — keep visually in sync.
+         The light column from docs/DESIGN.md (the site's lit consumer look), adopted here
+         2026-07-16 so onboarding no longer seams against the light popup.
+         Brand faces self-hosted per docs/DESIGN.md: Inter = UI, Newsreader = headlines,
+         Geist Mono = machine output only (the recovery words). */
+      @font-face {
+        font-family: "Inter";
+        font-style: normal;
+        font-weight: 400;
+        src: url("fonts/inter-latin-400-normal.woff2") format("woff2");
+      }
+      @font-face {
+        font-family: "Inter";
+        font-style: normal;
+        font-weight: 500;
+        src: url("fonts/inter-latin-500-normal.woff2") format("woff2");
+      }
+      @font-face {
+        font-family: "Newsreader";
+        font-style: normal;
+        font-weight: 500;
+        src: url("fonts/newsreader-latin-500-normal.woff2") format("woff2");
+      }
+      @font-face {
+        font-family: "Geist Mono";
+        font-style: normal;
+        font-weight: 400;
+        src: url("fonts/geist-mono-latin-400-normal.woff2") format("woff2");
+      }
+
+      :root {
+        --bg: #f6f7fb;
+        --surface: #ffffff;
+        --surface-2: #eef1f7;
+        --well: #f3f5f9;
+        --line: #e4e7ef;
+        --line-soft: #eceef5;
+        --fg: #14161d;
+        --ink-soft: #363a46;
+        --muted: #6d7382;
+        --faint: #a9aebc;
+        --placeholder: #949cb0;
+        --accent: #ff5f52;
+        --accent-deep: #d63d30;
+        --accent-fg: #ffffff;
+        --glow-b: #2fcbb5;
+        --good: #0d8049;
+        --good-dot: #17a05e;
+        --warn: #96690a;
+        --warn-dot: #d9a13d;
+        --bad: #b3261e;
+        --shadow-card:
+          0 1px 2px rgba(133, 145, 172, 0.1),
+          0 10px 28px -18px rgba(133, 145, 172, 0.45);
+        --serif: "Newsreader", Georgia, serif;
+        --sans: "Inter", -apple-system, system-ui, "Segoe UI", sans-serif;
+        --mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+        --r: 14px;
+      }
+      * { box-sizing: border-box; }
+      html { color-scheme: light; }
+      html, body { margin: 0; }
+      body {
+        min-height: 100vh;
+        font: 14.5px/1.55 var(--sans);
+        background: var(--bg);
+        color: var(--fg);
+        -webkit-font-smoothing: antialiased;
+        text-rendering: optimizeLegibility;
+        display: flex;
+        justify-content: center;
+        position: relative;
+        overflow-x: clip;
+      }
+      /* Aurora above the fold: a coral wash + a teal undertone on the paper, with a whisper of
+         ink grain so the gradients never band — the site hero's lit material. */
+      body::before {
+        content: ""; position: fixed; top: -22rem; left: 50%; transform: translateX(-50%);
+        width: 90rem; height: 56rem; pointer-events: none; z-index: 0;
+        /* fade every edge so neither the grain nor the glows end in a seam */
+        -webkit-mask-image: radial-gradient(closest-side at 50% 42%, #000 30%, transparent 98%);
+        mask-image: radial-gradient(closest-side at 50% 42%, #000 30%, transparent 98%);
+        background:
+          url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.03 0'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)'/%3E%3C/svg%3E"),
+          radial-gradient(46rem 30rem at 50% 38%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 68%),
+          radial-gradient(34rem 24rem at 64% 30%, color-mix(in srgb, var(--glow-b) 7%, transparent), transparent 70%);
+      }
+      b, strong { font-weight: 500; color: var(--fg); }
+      button { font: inherit; cursor: pointer; color: inherit; touch-action: manipulation; }
+      input, textarea { font: inherit; font-size: 16px; }
+      .hidden { display: none !important; }
+
+      /* full-page centered column */
+      #app {
+        width: 100%; max-width: 460px; position: relative; z-index: 1;
+        padding: 56px max(20px, env(safe-area-inset-right)) 72px max(20px, env(safe-area-inset-left));
+      }
+
+      .kicker {
+        font-size: 11px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.12em;
+        color: var(--faint); margin: 0 0 10px;
+      }
+      h1 { font-family: var(--serif); font-size: 27px; font-weight: 500; margin: 0 0 8px; letter-spacing: -0.01em; }
+      .lead { color: var(--muted); margin: 0 0 18px; }
+      .muted { color: var(--muted); font-size: 13px; }
+      .hint { color: var(--faint); font-size: 12px; margin-top: 8px; }
+      .center { text-align: center; }
+      .mono { font-family: var(--mono); letter-spacing: 0.02em; }
+
+      .hero { text-align: center; padding: 26px 0 30px; }
+      .hero .logo { position: relative; display: inline-flex; color: #ff5f52; }
+      .hero .logo svg { width: 62px; height: 62px; position: relative; }
+      .hero .logo::before, .hero .logo::after {
+        content: ""; position: absolute; top: 50%; left: 50%; translate: -50% -50%;
+        border-radius: 50%; pointer-events: none;
+      }
+      .hero .logo::before {
+        width: 122px; height: 122px;
+        border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+        animation: breathe 5.6s ease-in-out infinite;
+      }
+      .hero .logo::after {
+        width: 178px; height: 178px;
+        border: 1px solid color-mix(in srgb, var(--accent) 13%, transparent);
+        animation: breathe 5.6s ease-in-out 1.2s infinite;
+      }
+      @keyframes breathe {
+        0%, 100% { transform: scale(0.94); opacity: 0.55; }
+        50% { transform: scale(1.05); opacity: 1; }
+      }
+      .hero h1 { font-size: 32px; margin: 26px 0 9px; letter-spacing: -0.015em; }
+      .hero p { color: var(--muted); margin: 0 auto; max-width: 380px; font-size: 15px; }
+
+      .card {
+        background: var(--surface); border: 1px solid var(--line); border-radius: var(--r);
+        padding: 18px; margin-bottom: 14px; box-shadow: var(--shadow-card);
+      }
+
+      /* The two-mode fork: a card you can press. Serif title, honest body, one quiet accent
+         line naming what the road costs. */
+      button.mode {
+        display: block; width: 100%; text-align: left; cursor: pointer;
+        transition: border-color 0.15s ease, transform 0.15s ease, box-shadow 0.2s ease;
+      }
+      button.mode:hover {
+        border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
+        transform: translateY(-1px);
+        box-shadow:
+          0 1px 2px rgba(133, 145, 172, 0.1),
+          0 14px 32px -18px rgba(133, 145, 172, 0.55);
+      }
+      button.mode:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+      .mode-title { display: block; font-family: var(--serif); font-size: 20px; font-weight: 500; letter-spacing: -0.01em; }
+      .mode-body { display: block; color: var(--muted); font-size: 13.5px; margin: 7px 0 9px; }
+      .mode-note { display: block; color: var(--accent-deep); font-size: 12.5px; font-weight: 500; }
+
+      .btn {
+        display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+        font-weight: 500; font-size: 14px; color: var(--fg);
+        background: transparent; border: 1px solid var(--line); border-radius: 999px;
+        padding: 9px 16px;
+        transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease,
+          transform 0.15s ease, box-shadow 0.2s ease, filter 0.15s ease;
+      }
+      .btn:hover {
+        border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
+        background: color-mix(in srgb, var(--accent) 8%, transparent);
+      }
+      .btn.primary {
+        background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 82%, #ffffff), var(--accent) 62%);
+        border-color: color-mix(in srgb, var(--accent) 55%, #10154d);
+        color: var(--accent-fg);
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, 0.35),
+          0 8px 22px -8px color-mix(in srgb, var(--accent) 45%, transparent),
+          0 2px 6px -2px color-mix(in srgb, var(--accent) 35%, transparent);
+      }
+      .btn.primary:hover {
+        transform: translateY(-1px); filter: brightness(1.05);
+        border-color: color-mix(in srgb, var(--accent) 55%, #10154d);
+        background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 82%, #ffffff), var(--accent) 62%);
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, 0.4),
+          0 12px 28px -8px color-mix(in srgb, var(--accent) 52%, transparent),
+          0 3px 8px -2px color-mix(in srgb, var(--accent) 38%, transparent);
+      }
+      .btn.primary:active { transform: none; filter: brightness(0.97); }
+      .btn.block { width: 100%; padding: 12px 16px; }
+      .btn.block + .btn.block { margin-top: 9px; }
+      .btn.ghost { background: none; border-color: transparent; color: var(--accent-deep); padding: 8px 10px; }
+      .btn.ghost:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); border-color: transparent; }
+      .btn.icon svg { width: 14px; height: 14px; flex: none; }
+      .btn:disabled { opacity: 0.45; cursor: default; filter: none; transform: none; }
+      .btn:disabled:hover { background: transparent; border-color: var(--line); }
+      .btn.primary:disabled:hover {
+        background: linear-gradient(180deg, color-mix(in srgb, var(--accent) 82%, #ffffff), var(--accent) 62%);
+        border-color: color-mix(in srgb, var(--accent) 55%, #10154d);
+      }
+      .btn[aria-busy="true"]::after {
+        content: ""; display: inline-block; width: 12px; height: 12px; flex: none;
+        border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%;
+        animation: spin 0.7s linear infinite;
+      }
+
+      input, textarea {
+        width: 100%; color: var(--fg); background: var(--well); border: 1px solid var(--line);
+        border-radius: 11px; padding: 10px 13px; margin: 4px 0;
+      }
+      input::placeholder, textarea::placeholder { color: var(--placeholder); }
+      input:focus, textarea:focus, .btn:focus-visible, .eye:focus-visible {
+        outline: 2px solid var(--accent); outline-offset: 1px; border-color: transparent;
+      }
+      textarea { resize: vertical; min-height: 76px; }
+      textarea#phrase { font-family: var(--mono); font-size: 14px; }
+      label.field { display: block; font-size: 12.5px; color: var(--muted); margin-top: 11px; }
+      .pw { position: relative; }
+      .pw .eye { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--faint); padding: 4px; }
+      .pw .eye:hover { color: var(--muted); }
+      .pw .eye svg { width: 16px; height: 16px; display: block; }
+
+      .handle-in { position: relative; }
+      .handle-in .at { position: absolute; left: 13px; top: 50%; transform: translateY(-50%); color: var(--faint); font-weight: 500; pointer-events: none; }
+      .handle-in input { padding-left: 26px; }
+
+      .or { display: flex; align-items: center; color: var(--faint); font-size: 11.5px; margin: 14px 0; }
+      .or::before, .or::after { content: ""; flex: 1; height: 1px; background: var(--line-soft); }
+      .or span { padding: 0 10px; }
+
+      .msg { font-size: 12.5px; margin-top: 8px; }
+      .msg.err { color: var(--bad); }
+      .msg.ok { color: var(--good); }
+
+      /* recovery-phrase grid — the words are machine output: mono, and mono only here */
+      .words { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 14px 0 4px; }
+      .words .w {
+        display: flex; gap: 7px; align-items: baseline; min-width: 0;
+        background: var(--well); border: 1px solid var(--line); border-radius: 10px;
+        padding: 8px 10px; font-family: var(--mono); font-size: 13px;
+      }
+      .words .w .n { color: var(--faint); font-size: 10.5px; min-width: 15px; text-align: right; flex: none; font-family: var(--sans); }
+      .words .w .t { overflow: hidden; text-overflow: ellipsis; }
+      @media (max-width: 430px) { .words { grid-template-columns: repeat(2, 1fr); } }
+
+      .warnline {
+        display: block; font-size: 12.5px; color: var(--warn);
+        background: rgba(217, 161, 61, 0.1); border: 1px solid rgba(150, 105, 10, 0.28);
+        border-radius: 10px; padding: 10px 12px; margin: 14px 0 2px;
+      }
+
+      .ck { display: flex; gap: 10px; align-items: flex-start; margin: 16px 0 6px; cursor: pointer; font-size: 13.5px; color: var(--muted); }
+      .ck input { width: auto; margin: 3px 0 0; accent-color: var(--accent); flex: none; }
+
+      /* The invite-a-friend pitch: user-visible message text, NOT machine output — it reads
+         in the interface face inside a quiet well so people see exactly what they'd paste. */
+      .pitch {
+        background: var(--well); border: 1px solid var(--line); border-radius: 10px;
+        padding: 10px 12px; font-size: 13.5px; line-height: 1.5; color: var(--ink);
+        user-select: all;
+      }
+
+      .done-ic {
+        width: 64px; height: 64px; border-radius: 50%; margin: 0 auto;
+        display: flex; align-items: center; justify-content: center;
+        color: var(--good); background: rgba(23, 160, 94, 0.1); border: 1px solid rgba(23, 160, 94, 0.3);
+      }
+      .done-ic svg { width: 30px; height: 30px; }
+
+      .fade { animation: fade 0.16s ease-out; }
+      @keyframes fade { from { opacity: 0; transform: translateY(3px); } to { opacity: 1; } }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      @media (prefers-reduced-motion: reduce) {
+        .fade { animation: none; }
+        .btn[aria-busy="true"]::after { animation: none; }
+        /* rings rest at their finished state */
+        .hero .logo::before, .hero .logo::after { animation: none; opacity: 1; }
+        .btn { transition: none; }
+        .btn.primary:hover { transform: none; }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app" aria-live="polite"></div>
+    <script type="module" src="onboarding.js"></script>
+  </body>
+</html>

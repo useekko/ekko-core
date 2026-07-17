@@ -1,0 +1,13 @@
+{
+  "name": "ekko-directory",
+  "version": "0.1.0",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "description": "Ekko key directory — publishes PUBLIC keys and handle→key mappings. Never sees a private key.",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "start": "node src/index.mjs",
+    "test": "node --test"
+  }
+}

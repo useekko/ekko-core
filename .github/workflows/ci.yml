@@ -1,0 +1,32 @@
+# Runs on the public repo only (this tree also lives in a private working repo,
+# where Actions would just burn minutes re-testing what local hooks already ran).
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    if: github.repository == 'useekko/ekko-core'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - name: Directory server tests
+        run: npm test
+        working-directory: server
+      - name: Package the extension
+        run: npm run package
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ekko-chromium
+          path: artifacts/*.zip
+          retention-days: 14
