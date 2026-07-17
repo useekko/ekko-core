@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/useekko/ekko-core/security/policy
+    about: Never open a public issue for a vulnerability. Email kirill@useekko.app — see SECURITY.md.
+  - name: Questions, ideas, "this confused me"
+    url: https://github.com/useekko/ekko-core/discussions
+    about: Feedback is the roadmap. Discussions is the place for anything that isn't a concrete bug.
+  - name: Discord
+    url: https://discord.gg/cQytJjVdxu
+    about: Chat with the maintainers and other users.

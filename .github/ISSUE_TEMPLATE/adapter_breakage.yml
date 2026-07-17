@@ -1,0 +1,44 @@
+name: Adapter breakage
+description: A messenger changed its DOM and Ekko no longer finds the composer, the peer, or messages there.
+labels: ["adapter"]
+body:
+  - type: markdown
+    attributes:
+      value: >
+        Messengers reshape their DOM regularly; this is the most common way Ekko breaks, and
+        selector fixes are great first contributions — see `docs/ADAPTERS.md`.
+  - type: dropdown
+    id: messenger
+    attributes:
+      label: Messenger
+      options:
+        - Instagram
+        - WhatsApp
+        - Telegram
+        - Messenger
+    validations:
+      required: true
+  - type: textarea
+    id: symptom
+    attributes:
+      label: What stopped working
+      description: >
+        E.g. composer glyph stuck on "identifying this chat", sends go out unencrypted-looking,
+        incoming ciphertext no longer decrypts in-page. Roughly when did it start?
+    validations:
+      required: true
+  - type: textarea
+    id: debug
+    attributes:
+      label: Diagnostics overlay output
+      description: >
+        Enable the `rsn.debug` overlay (see `docs/ADAPTERS.md`) on the broken page and paste
+        what it reports. No plaintext or keys — the overlay doesn't show any, and neither should you.
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: Ekko version and browser
+      placeholder: "0.7.0 on Chrome 138"
+    validations:
+      required: true
