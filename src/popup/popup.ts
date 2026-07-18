@@ -896,8 +896,10 @@ async function identityTab(main: HTMLElement): Promise<void> {
             : humanError(res.error),
       );
     }
-    acctMsg('Encrypted and stored. Sign in on your phone to bring it down.', false);
-    $('#acctPass').classList.add('hidden');
+    // Re-render into the automatic state — the card flipping to "keeps it current by
+    // itself" IS the confirmation; leaving the old buttons up reads as "nothing changed".
+    // (The passphrase was saved before this button unlocked, so it may leave the screen.)
+    await identityTab(main);
   });
 
   const drop = $('#acctDrop');
