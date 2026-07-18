@@ -148,9 +148,15 @@ export class TelegramAdapter implements SiteAdapter {
       const id = location.hash.slice(1).split('_')[0];
       return id && /^-?\d+$/.test(id) ? id : null;
     }
+    // The header is authoritative. Its fallback — a bubble's data-peer-id, for the moment
+    // right after opening a chat before the header itself has rendered — must be VISIBLE:
+    // a chat mid-transition-out leaves its own bubbles in the DOM (same hazard composer()
+    // guards against), and an unfiltered querySelector would silently hand back the id of
+    // whatever chat used to be open instead of the one actually on screen.
     const el =
       document.querySelector<HTMLElement>('.chat-info .peer-title[data-peer-id]') ??
-      document.querySelector<HTMLElement>('.bubble[data-peer-id]');
+      Array.from(document.querySelectorAll<HTMLElement>('.bubble[data-peer-id]')).find(isVisible) ??
+      null;
     const id = el?.getAttribute('data-peer-id');
     return id && /^-?\d+$/.test(id) ? id : null;
   }

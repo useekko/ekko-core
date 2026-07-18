@@ -550,6 +550,26 @@ describe('Telegram adapter — DOM parsing', () => {
     expect(new TelegramAdapter().isDirectChat()).toBe(false);
   });
 
+  it('WebK bubble fallback (no header yet) ignores a hidden bubble left over from a chat transition', () => {
+    history.replaceState(null, '', '/k/');
+    document.body.innerHTML = `
+      <div class="chat">
+        <div class="bubble" data-peer-id="999000111"></div>
+        <div class="bubble" data-peer-id="777000111"></div>
+      </div>`;
+    // The first bubble belongs to a chat that is transitioning out — still in the DOM (tweb
+    // keeps inactive views mounted mid-transition, same as composer()'s WebA hazard), but not
+    // visible. Force it invisible at the instance level (overrides this file's forced-visible
+    // prototype shim).
+    const stale = document.querySelector('.bubble[data-peer-id="999000111"]') as HTMLElement;
+    Object.defineProperty(stale, 'offsetParent', { configurable: true, get: () => null });
+    stale.getClientRects = (() => []) as unknown as HTMLElement['getClientRects'];
+
+    const tg = new TelegramAdapter();
+    expect(tg.threadId()).toBe('777000111');
+    expect(tg.threadId()).not.toBe('999000111');
+  });
+
   it('WebK fast path: an #@username hash or a t.me header link names the handle without IndexedDB', () => {
     history.replaceState(null, '', '/k/#@Maya_TG');
     expect(new TelegramAdapter().peerHandle()).toBe('maya_tg');
