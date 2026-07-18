@@ -47,6 +47,26 @@ describe('renderBubble blanks the platform token however deeply it is nested', (
     expect(el.classList.contains('rsn-system')).toBe(true);
   });
 
+  it('the reveal toggle keeps the lock in its slot and previews, never dumps, a long token', () => {
+    const el = document.createElement('div');
+    const long = `RSN1M:${'A'.repeat(2000)}`;
+    el.innerHTML = `<span>${long}</span>`;
+    renderBubble(el, 'Hey', 'decrypted');
+    const content = el.querySelector<HTMLElement>('.rsn-content')!;
+    const badge = el.querySelector<HTMLElement>('.rsn-badge')!;
+    expect(content.nextElementSibling).toBe(badge); // lock trails the text
+
+    badge.click(); // reveal the ciphertext
+    expect(content.classList.contains('rsn-cipher')).toBe(true);
+    expect(content.textContent!.length).toBeLessThan(500); // preview, not 2000 chars
+    expect(content.textContent!.endsWith('…')).toBe(true);
+    expect(content.nextElementSibling).toBe(badge); // lock did NOT move
+
+    badge.click(); // back to the plaintext
+    expect(content.textContent).toBe('Hey');
+    expect(content.nextElementSibling).toBe(badge);
+  });
+
   it('the focus-pull animation class arrives with decryption, not with the pending cover', () => {
     const el = document.createElement('span');
     el.textContent = token;

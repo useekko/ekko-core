@@ -222,7 +222,10 @@ export function renderBubble(
     badge.onclick = (e) => {
       e.stopPropagation();
       const showCipher = content!.classList.toggle('rsn-cipher');
-      content!.textContent = showCipher ? (el.dataset.rsnSrc ?? '') : text;
+      // Preview, not the full token: a chunked message is thousands of chars, and clamping
+      // in CSS needs a block box — which is exactly what displaces the lock (see the CSS).
+      const src = el.dataset.rsnSrc ?? '';
+      content!.textContent = showCipher ? (src.length > 480 ? `${src.slice(0, 480)} …` : src) : text;
       badge!.title = showCipher
         ? 'This is the encrypted message as sent — click to show the text'
         : `${BADGE_TITLE.decrypted} — click to see what was actually sent`;
@@ -255,9 +258,16 @@ export function injectStyle(): void {
     @keyframes rsn-in { from { opacity: 0; filter: blur(6px); } }
     .rsn-content.rsn-in { animation: rsn-in .26s ease-out; }
     @media (prefers-reduced-motion: reduce) { .rsn-content.rsn-in { animation: none; } }
+    /* The revealed ciphertext: mono because it IS machine output (the one thing mono is
+       for), and INLINE — a block box here shoves the trailing lock below the text, so the
+       badge would jump when toggling. Truncation happens in JS, not line-clamp, for the
+       same reason. The quiet wash marks it as an artifact, not broken text. */
     .rsn-content.rsn-cipher {
-      font: 11px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; opacity: .72; word-break: break-all;
-      display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 8; overflow: hidden;
+      font: 10.5px/1.7 ui-monospace, SFMono-Regular, Menlo, monospace;
+      opacity: .78; word-break: break-all; letter-spacing: .015em;
+      background: color-mix(in srgb, currentColor 8%, transparent);
+      border-radius: 5px; padding: 1px 4px;
+      -webkit-box-decoration-break: clone; box-decoration-break: clone;
     }
     .rsn-badge { display: inline-flex; vertical-align: -1px; margin-left: 6px; opacity: .5; color: inherit; }
     .rsn-badge--btn { cursor: pointer; padding: 3px; margin: -3px -3px -3px 3px; border-radius: 4px; }
