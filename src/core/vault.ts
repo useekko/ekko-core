@@ -32,8 +32,9 @@ export interface VaultData {
   // random ones). Encrypted at rest like everything else here. It is the seed the identity
   // and recovery key derive from — showing it to the user is the "back up now" flow.
   mnemonic?: string;
-  // Platform handles I linked for discovery (platform -> handle as typed). The directory
-  // only ever stores their hash; this local copy exists so the popup can show what's linked.
+  // My linked socials (platform -> handle, normalized): a read-only mirror of the account's
+  // account_handles, refreshed on acctSync. Managed on the account (the phone, the account
+  // page) — the extension only displays them.
   platformHandles?: Record<string, string>;
   contacts: Contact[];
   sessions: Session[];

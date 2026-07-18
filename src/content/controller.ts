@@ -20,8 +20,10 @@ import type { WireKind } from '../core/wire.js';
 import type { SiteAdapter, Bridge, SendHook, ChatState, ChatActions } from './adapter.js';
 import { errorHint } from './adapter.js';
 
-// Recoverable ingest failures — worth retrying on a later scan.
-const RETRYABLE = new Set(['locked', 'no-vault', 'no-session', 'no-contact', 'unreachable']);
+// Recoverable ingest failures — worth retrying on a later scan. 'old-session' rides along
+// not because it recovers (it can't — the channel is gone) but because its first
+// classification can race the mailbox-pull debounce; a later pull re-judges it.
+const RETRYABLE = new Set(['locked', 'no-vault', 'no-session', 'old-session', 'no-contact', 'unreachable']);
 
 function sameOfferPeer(
   a: { raw: string; kind: 'invite' | 'handshake' },
@@ -828,6 +830,9 @@ export class Controller {
       const who = this.a.peerName();
       return who ? `Encrypted — set up Ekko with ${who} to read` : 'Encrypted — link this chat in Ekko to read';
     }
+    // Honest, not hopeful: this was sealed under a secure channel this device never held
+    // (the sender re-staged since; sessions never leave devices). Waiting won't fix it.
+    if (error === 'old-session') return 'Sealed under an older secure channel — this device can’t read it';
     return 'Encrypted — waiting for the secure channel';
   }
 

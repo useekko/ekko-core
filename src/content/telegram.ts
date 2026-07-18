@@ -257,7 +257,10 @@ export class TelegramAdapter implements SiteAdapter {
   }
 
   replaceBubbleText(el: HTMLElement, text: string, status: BubbleStatus): void {
-    renderBubble(el, text, status);
+    // Both Telegram clients nest the timestamp + delivery ticks INSIDE the text element
+    // (WebK's ticks are icon-font TEXT) — preserve that chrome instead of blanking it, and
+    // cache the STRIPPED source so a retry re-reads the clean token, not token+timestamp.
+    renderBubble(el, text, status, { preserve: this.sel().strip, source: this.bubbleText(el) });
   }
 
   readComposer(): string {

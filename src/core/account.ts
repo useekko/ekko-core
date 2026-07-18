@@ -230,6 +230,23 @@ export async function publishKey(s: AccountSession, invite: string): Promise<voi
   });
 }
 
+/** MY linked socials (account_handles), normalized. The account (phone/web) is where they are
+ *  managed; the extension only mirrors them — for display, and so friends' devices can match a
+ *  chat to me. Read on every sync, so a link made on the phone shows up here by itself. */
+export async function mySocials(s: AccountSession): Promise<Record<string, string>> {
+  const uid = userIdOf(s);
+  if (!uid) throw new AccountError('Not signed in.');
+  const rows = (await call(`/rest/v1/account_handles?user_id=eq.${uid}&select=platform,handle`, {
+    token: s.accessToken,
+  })) as { platform: string; handle: string }[];
+  const out: Record<string, string> = {};
+  for (const r of rows) {
+    const platform = r.platform.toLowerCase();
+    out[platform] = canonHandle(platform, String(r.handle));
+  }
+  return out;
+}
+
 interface EdgeRow {
   id: string;
   status: string;

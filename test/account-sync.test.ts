@@ -1,7 +1,9 @@
 import { describe, it, expect, beforeAll } from 'vitest';
 import { sealBackup, openBackup, type BackupBlob } from '../src/core/backup.js';
 import { deviceIdentity, generateMnemonic } from '../src/core/recovery.js';
-import { fingerprintHex } from '../src/core/crypto.js';
+import { fingerprintHex, startHandshake, acceptHandshake, sealMessage } from '../src/core/crypto.js';
+import { formatMessage, classify } from '../src/core/wire.js';
+import { scopedThreadId } from '../src/core/thread.js';
 import { b64uEncode } from '../src/core/b64.js';
 import type { Req, Res } from '../src/core/rpc.js';
 
@@ -23,6 +25,11 @@ const VAULT_PASS = 'a passphrase for this browser';
 const PEER_A = deviceIdentity(generateMnemonic(), 0);
 const PEER_B = deviceIdentity(generateMnemonic(), 0);
 
+// A secure channel that predates this browser: the identity's other device set it up with
+// Mara. Its session rides in the backup; Mara's side seals the pre-restore history.
+const OLD_CHANNEL = startHandshake(IDENTITY, PEER_A.bundle);
+const MARA_SESSION = acceptHandshake(PEER_A, OLD_CHANNEL.wire).session;
+
 // --- a fake Supabase, holding exactly one row ---
 let claimedHandle: string | null = null;
 let publishedKey: string | null = null;
@@ -32,6 +39,16 @@ let serverBlob: BackupBlob | null = sealBackup(
     contacts: [
       { bundle: b64uEncode(PEER_A.bundle), label: 'Mara', verified: true, addedAt: 1_700_000_000_000 },
       { bundle: b64uEncode(PEER_B.bundle), label: 'Ivan', verified: false, addedAt: 1_700_000_001_000 },
+    ],
+    sessions: [
+      {
+        id: b64uEncode(OLD_CHANNEL.session.id),
+        key0to1: b64uEncode(OLD_CHANNEL.session.key0to1),
+        key1to0: b64uEncode(OLD_CHANNEL.session.key1to0),
+        myParty: OLD_CHANNEL.session.myParty,
+        peerFingerprint: b64uEncode(OLD_CHANNEL.session.peerFingerprint),
+        acct: true, // thread-less by design, like every mailbox session — serves any chat bound to Mara
+      },
     ],
   },
   BACKUP_PASS,
@@ -43,6 +60,9 @@ function jwt(claims: Record<string, unknown>): string {
 }
 
 const TOKEN = jwt({ sub: '11111111-2222-3333-4444-555555555555', email: 'kirill@useekko.app' });
+
+// MY linked socials on the account (account_handles). Managed there — the extension mirrors.
+let socialRows: { platform: string; handle: string }[] = [];
 
 globalThis.fetch = (async (input: string | URL, init?: RequestInit) => {
   const url = String(input);
@@ -80,6 +100,7 @@ globalThis.fetch = (async (input: string | URL, init?: RequestInit) => {
   // syncAccount touches these after a claim publishes the key; empty is a fine answer here.
   if (url.includes('/rest/v1/connections')) return json([]);
   if (url.includes('/rest/v1/session_setups')) return json([]);
+  if (url.includes('/rest/v1/account_handles')) return json(socialRows);
   if (url.includes('/rest/v1/key_backups')) {
     if (method === 'GET') return json(serverBlob ? [{ blob: serverBlob }] : []);
     if (method === 'POST') {
@@ -186,6 +207,18 @@ describe('a new browser adopts the identity from the account', () => {
     expect(contacts?.find((c) => c.label === 'Ivan')?.verified).toBe(false);
   });
 
+  it('brings sessions back too: history sealed before the restore still opens', async () => {
+    const t = scopedThreadId('telegram', 'dm-mara');
+    const { contacts } = await call({ type: 'contacts' });
+    const mara = contacts!.find((c) => c.label === 'Mara')!;
+    await call({ type: 'bindThread', threadId: t, fingerprint: mara.fingerprint });
+    // Sealed by Mara under the pre-restore channel — the exact message class that used to
+    // hang at "waiting for the secure channel" forever after a restore.
+    const old = formatMessage(sealMessage(MARA_SESSION, 'sent before this browser existed'));
+    const res = await call({ type: 'ingest', threadId: t, kind: 'message', raw: classify(old)!.raw });
+    expect(res.plaintext).toBe('sent before this browser existed');
+  });
+
   it('will not clobber the identity it now has', async () => {
     const again = await call({
       type: 'acctRestore',
@@ -207,9 +240,10 @@ describe('and can back up again, from here', () => {
     expect(opened.mnemonic).toBe(MNEMONIC);
     expect(opened.contacts).toHaveLength(2);
 
-    // …and must not contain the phrase in the clear.
-    const onTheWire = JSON.stringify(serverBlob);
-    for (const word of MNEMONIC.split(' ')) expect(onTheWire).not.toContain(word);
+    // …and must not contain the phrase in the clear. Check the CIPHERTEXT value, not the
+    // JSON envelope: the "nonce" field name contains the BIP39 word "once", so a mnemonic
+    // that rolls it made this flake (~1% of runs).
+    for (const word of MNEMONIC.split(' ')) expect(serverBlob!.ct).not.toContain(word);
   });
 
   it('refuses to back up behind a passphrase too short to be worth it', async () => {
@@ -251,6 +285,21 @@ describe('the account handle', () => {
     const res = await call({ type: 'acctClaim', handle: 'someone_new' });
     expect(res.ok).toBe(true);
     expect((await call({ type: 'invite' })).username).toBe('kirill');
+  });
+
+  it('mirrors the socials linked on the account — and drops what the account dropped', async () => {
+    socialRows = [
+      { platform: 'Instagram', handle: '@KV.gram' },
+      { platform: 'whatsapp', handle: '+1 (555) 123-4567' },
+    ];
+    expect((await call({ type: 'acctSync' })).ok).toBe(true);
+    // Normalized on the way in — lowercase platform, no @, phone reduced to digits.
+    expect((await call({ type: 'invite' })).handles).toEqual({ instagram: 'kv.gram', whatsapp: '15551234567' });
+
+    // A social removed on the account disappears here too: replace, never merge.
+    socialRows = [{ platform: 'instagram', handle: 'kv.gram' }];
+    expect((await call({ type: 'acctSync' })).ok).toBe(true);
+    expect((await call({ type: 'invite' })).handles).toEqual({ instagram: 'kv.gram' });
   });
 
   it('is gated on the session — signed out, there is no claim', async () => {

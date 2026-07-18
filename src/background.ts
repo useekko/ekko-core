@@ -32,7 +32,7 @@ import {
   sendCode, verifyCode, validSession, emailOf, userIdOf,
   fetchBackup, uploadBackup, deleteBackup, SUPABASE_URL,
   myProfile, publishKey, claimHandle as acctClaimHandle, connectionEdges, sessionSetups, publishSessionSetup,
-  acceptConnection, declineConnection, canonHandle,
+  acceptConnection, declineConnection, canonHandle, mySocials,
 } from './core/account.js';
 import type { AccountSession, SessionSetupRow } from './core/account.js';
 import { isManualThreadId, isScopedThreadId, scopedThreadId } from './core/thread.js';
@@ -561,6 +561,20 @@ async function runAccountSync(v: VaultData, s: AccountSession): Promise<Res> {
   let skippedSelf = 0;
   let skippedNoKey = 0;
   const requests: { id: string; handle: string }[] = [];
+
+  // MY linked socials mirror the account now — they are managed there (the phone, the account
+  // page), never here. Replace, don't merge: a social removed on the account must disappear
+  // here too. Non-fatal, like the peer read — offline keeps the last mirror.
+  try {
+    const socials = await mySocials(s);
+    if (JSON.stringify(socials) !== JSON.stringify(v.platformHandles ?? {})) {
+      v.platformHandles = Object.keys(socials).length ? socials : undefined;
+      changed = true;
+    }
+  } catch {
+    /* offline or an older backend: keep the last mirror */
+  }
+
   for (const edge of await connectionEdges(s)) {
     // The requester stages setup even while pending (RLS hides it until acceptance). A
     // pending request someone sent ME is a consent decision — surface it, act on nothing.
@@ -1192,120 +1206,6 @@ async function handle(req: Req, sender?: chrome.runtime.MessageSender): Promise<
       return { ok: true, invite };
     }
 
-    case 'linkPlatform': {
-      const v = await getVault();
-      if (!v) return { error: 'locked' };
-      if (!v.username) return { error: 'no-handle' }; // discovery hangs off a claimed @handle
-      const platform = String(req.platform).toLowerCase();
-      const handle = canonHandle(platform, String(req.handle));
-      if (!PLATFORM_RE.test(platform) || handle.length < 1 || handle.length > 100) return { error: 'bad-handle' };
-      const directory = await secureDirectoryUrl();
-      if (!directory) return { error: 'directory-insecure' };
-      try {
-        const cred = await proveKey(directory, v.identity);
-        if ('error' in cred) return cred;
-        const r = await fetch(`${directory}/handles/link`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ ...cred, platform, handle }),
-        });
-        if (r.status === 409) return { error: 'handle-taken' };
-        if (r.status === 404) return { error: 'no-account' }; // handle claimed before the v2 directory
-        if (r.status === 401) return { error: 'bad-proof' };
-        if (r.status === 400) return { error: 'bad-handle' };
-        if (!r.ok) return { error: 'directory-error' };
-      } catch {
-        return { error: 'directory-unreachable' };
-      }
-      (v.platformHandles ??= {})[platform] = handle;
-      await persist();
-      return { ok: true, handles: { ...v.platformHandles } };
-    }
-
-    case 'unlinkPlatform': {
-      const v = await getVault();
-      if (!v) return { error: 'locked' };
-      const platform = String(req.platform).toLowerCase();
-      if (!PLATFORM_RE.test(platform)) return { error: 'bad-handle' };
-      const directory = await secureDirectoryUrl();
-      if (!directory) return { error: 'directory-insecure' };
-      try {
-        const cred = await proveKey(directory, v.identity);
-        if ('error' in cred) return cred;
-        const r = await fetch(`${directory}/handles/unlink`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ ...cred, platform }),
-        });
-        if (r.status === 404) return { error: 'no-account' };
-        if (r.status === 401) return { error: 'bad-proof' };
-        if (!r.ok) return { error: 'directory-error' };
-      } catch {
-        return { error: 'directory-unreachable' };
-      }
-      // Local copy follows only a confirmed server delete — a failed unlink must keep
-      // showing the mapping, or the popup would lie about what the directory still serves.
-      if (v.platformHandles && platform in v.platformHandles) {
-        delete v.platformHandles[platform];
-        await persist();
-      }
-      return { ok: true, handles: { ...(v.platformHandles ?? {}) } };
-    }
-
-    // Ownership ceremony, step 1: get a one-time code + where to send it. The directory
-    // authenticates the DEVICE key; the platform asserts the handle when the code arrives
-    // at the bot. See docs/DIRECTORY.md.
-    case 'verifyStart': {
-      const v = await getVault();
-      if (!v) return { error: 'locked' };
-      const platform = String(req.platform).toLowerCase();
-      if (!PLATFORM_RE.test(platform)) return { error: 'bad-handle' };
-      const directory = await secureDirectoryUrl();
-      if (!directory) return { error: 'directory-insecure' };
-      try {
-        const cred = await proveKey(directory, v.identity);
-        if ('error' in cred) return cred;
-        const r = await fetch(`${directory}/verify/start`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ ...cred, platform }),
-        });
-        if (r.status === 503) return { error: 'verify-unavailable' };
-        if (r.status === 404) return { error: 'no-account' };
-        if (r.status === 401) return { error: 'bad-proof' };
-        if (!r.ok) return { error: 'directory-error' };
-        const out = (await r.json()) as Res['verify'];
-        if (!out?.code || !out.checkId || !out.bot?.username) return { error: 'directory-error' };
-        return { ok: true, verify: out };
-      } catch {
-        return { error: 'directory-unreachable' };
-      }
-    }
-
-    // Ownership ceremony, step 2: poll. On the confirming answer the directory hands back
-    // the platform-asserted handle exactly once — adopt it as the local copy, because what
-    // the user TYPED at link time and what the platform says they own can differ.
-    case 'verifyCheck': {
-      const v = await getVault();
-      if (!v) return { error: 'locked' };
-      const directory = await secureDirectoryUrl();
-      if (!directory) return { error: 'directory-insecure' };
-      try {
-        const r = await fetch(`${directory}/verify/check?id=${encodeURIComponent(String(req.checkId))}`);
-        if (r.status === 404) return { error: 'verify-expired' };
-        if (!r.ok) return { error: 'directory-error' };
-        const out = (await r.json()) as { status?: string; platform?: string; handle?: string };
-        if (out.status !== 'verified') return { ok: true, verifyStatus: 'pending' };
-        if (out.handle && out.platform && PLATFORM_RE.test(out.platform)) {
-          (v.platformHandles ??= {})[out.platform] = canonHandle(out.platform, out.handle);
-          await persist();
-        }
-        return { ok: true, verifyStatus: 'verified', verifiedHandle: out.handle };
-      } catch {
-        return { error: 'directory-unreachable' };
-      }
-    }
-
     // Manually edit a contact's messenger handles. Empty value = remove; the whole map is
     // replaced after normalization (same canonical form as discovery, or recognition and
     // lookups would never match what sync or the adapters produce).
@@ -1326,35 +1226,6 @@ async function handle(req: Req, sender?: chrome.runtime.MessageSender): Promise<
       c.handles = Object.keys(clean).length ? clean : undefined;
       await persist();
       return { ok: true, contact: contactView(c, v.identity.fingerprint) };
-    }
-
-    // What does the directory currently say about MY mappings? The popup's badge reads from
-    // here instead of assuming "pending": verification is server-side state, so a client that
-    // hardcodes the label lies the moment the server verifies (it did, and it did).
-    // Same hash as the lookup path — my own handle never travels in the clear either.
-    case 'handleStatus': {
-      const v = await getVault();
-      if (!v) return { error: 'locked' };
-      const mine = Object.entries(v.platformHandles ?? {});
-      if (!mine.length) return { ok: true, verifiedHandles: {} }; // no mappings → no request
-      const directory = await secureDirectoryUrl();
-      if (!directory) return { error: 'directory-insecure' };
-      const out: Record<string, boolean> = {};
-      await Promise.all(
-        mine.map(async ([platform, handle]) => {
-          try {
-            const r = await fetch(
-              `${directory}/lookup?platform=${encodeURIComponent(platform)}&handle_hash=${handleHash(platform, canonHandle(platform, handle))}`,
-            );
-            if (!r.ok) return; // absent from the map = unknown, which the popup states honestly
-            const found = (await r.json()) as { verified?: boolean };
-            out[platform] = found.verified === true;
-          } catch {
-            // leave it unknown
-          }
-        }),
-      );
-      return { ok: true, verifiedHandles: out };
     }
 
     case 'threadContact': {
@@ -1608,6 +1479,18 @@ async function handle(req: Req, sender?: chrome.runtime.MessageSender): Promise<
               verified: c.verified,
               addedAt: c.addedAt,
             })),
+            // Sessions are the only capability that reads past messages — without them a
+            // restore orphans history (handshakeWire stays behind: pending-setup replay
+            // state, re-staged by the next sync where still needed).
+            sessions: v.sessions.map((s) => ({
+              id: b64uEncode(s.id),
+              key0to1: b64uEncode(s.key0to1),
+              key1to0: b64uEncode(s.key1to0),
+              myParty: s.myParty,
+              peerFingerprint: b64uEncode(s.peerFingerprint),
+              threadId: s.threadId,
+              acct: s.acct,
+            })),
           },
           req.backupPassphrase,
         );
@@ -1637,11 +1520,9 @@ async function handle(req: Req, sender?: chrome.runtime.MessageSender): Promise<
         currentSalt = salt;
         master = m;
 
-        // Sessions are deliberately absent from a backup — they re-establish from the next
-        // handshake. Contacts are the part that hurts to lose, so they come back with their
-        // original addedAt and verified flag intact. The fingerprint is derived, not carried:
-        // recomputing it here means a tampered bundle can never arrive with a fingerprint that
-        // lies about it.
+        // Contacts come back with their original addedAt and verified flag intact. The
+        // fingerprint is derived, not carried: recomputing it here means a tampered bundle
+        // can never arrive with a fingerprint that lies about it.
         const restored: Contact[] = payload.contacts
           .map((c) => {
             const bundle = b64uDecode(c.bundle);
@@ -1655,7 +1536,28 @@ async function handle(req: Req, sender?: chrome.runtime.MessageSender): Promise<
           })
           .filter((c) => b64uEncode(c.bundle) !== b64uEncode(identity.bundle));
 
-        vault = { identity, mnemonic, contacts: restored, sessions: [], threadBindings: {} };
+        // Sessions come back too — they are the only capability that reads history (an older
+        // blob simply has none). Per-entry defensive: one corrupt row must not sink the
+        // restore, and the byte lengths are checked so a malformed key can't sit in the vault
+        // masquerading as a channel.
+        const sessions: Session[] = (payload.sessions ?? []).flatMap((s) => {
+          try {
+            const one: Session = {
+              id: b64uDecode(s.id),
+              key0to1: b64uDecode(s.key0to1),
+              key1to0: b64uDecode(s.key1to0),
+              myParty: s.myParty === 1 ? 1 : 0,
+              peerFingerprint: b64uDecode(s.peerFingerprint),
+              threadId: typeof s.threadId === 'string' ? s.threadId : undefined,
+              acct: s.acct === true ? true : undefined,
+            };
+            const sane = one.id.length === 8 && one.key0to1.length === 32 && one.key1to0.length === 32 && one.peerFingerprint.length === 32;
+            return sane ? [one] : [];
+          } catch {
+            return [];
+          }
+        });
+        vault = { identity, mnemonic, contacts: restored, sessions, threadBindings: {} };
         // The backup blob carries keys and contacts, not the @handle string — but this account
         // owns one server-side (the "You are @you" onboarding reads it from the same profile).
         // Adopt it so the popup's Identity tab shows @you instead of an empty claim prompt right
@@ -1779,7 +1681,16 @@ async function handle(req: Req, sender?: chrome.runtime.MessageSender): Promise<
       // An unknown session's setup may be sitting in the account mailbox (an iOS sender
       // never puts it in the chat). Pull once, then look again.
       if (!session) session = await adoptStagedSession(v, hex);
-      if (!session) return { error: 'no-session' };
+      if (!session) {
+        // Dead vs pending, said honestly: the chat is bound to a contact we DO hold a live
+        // session with, yet this message names a different one — it was sealed under an older
+        // channel whose mailbox row was since replaced (sessions never leave devices, so
+        // nothing can resurrect it). Still retried upstream: within the mailbox-pull debounce
+        // this could be a rotation we haven't pulled yet, and the next adopt re-classifies.
+        const boundTo = v.threadBindings[req.threadId];
+        const heldForPeer = boundTo && v.sessions.some((s) => bytesToHex(s.peerFingerprint) === boundTo);
+        return { error: !req.manual && heldForPeer ? 'old-session' : 'no-session' };
+      }
       const bound = v.threadBindings[req.threadId];
       if (!req.manual && !bound) {
         // The vault knows who this session belongs to even though the chat isn't linked —

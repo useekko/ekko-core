@@ -550,6 +550,25 @@ describe('Telegram adapter — DOM parsing', () => {
     expect(new TelegramAdapter().isDirectChat()).toBe(false);
   });
 
+  it('WebK: the Ekko blob keeps the timestamp and ticks, and caches the STRIPPED source', () => {
+    history.replaceState(null, '', '/k/');
+    // The time + delivery ticks live INSIDE the text element, as icon-font TEXT — the
+    // reported bug: rendering the blob erased them ("really ugly, impractical").
+    document.body.innerHTML = `
+      <div class="chat"><div class="chat-info"><div class="peer-title" data-peer-id="777000111">Maya</div></div></div>
+      <div class="bubble"><div class="message">EKK1M:abc123<span class="time">14:32<span class="time-inner">✓✓</span></span></div></div>`;
+    const tg = new TelegramAdapter();
+    const el = document.querySelector<HTMLElement>('.message')!;
+
+    tg.replaceBubbleText(el, 'Encrypted with @maya — click the Ekko button by the message box to read', 'pending');
+    expect(el.querySelector('.time')?.textContent).toBe('14:32✓✓'); // platform chrome intact
+    expect(el.querySelector('.rsn-content')?.textContent).toContain('Encrypted with @maya');
+    // A retry re-reads the clean token — NOT token+timestamp (TOKEN_RE eats digits and ':',
+    // so a raw cache would decode garbage and the bubble could never resolve).
+    expect(el.dataset.rsnSrc).toBe('EKK1M:abc123');
+    expect(tg.bubbleText(el)).toBe('EKK1M:abc123');
+  });
+
   it('WebK: never derives the peer from a stray bubble — header id or fail visible', () => {
     // tweb keeps the previous chat's bubbles in the DOM during transitions, and a bubble's
     // data-peer-id is not guaranteed to be the open dialog's. Reading it bound threads to

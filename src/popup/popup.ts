@@ -703,34 +703,15 @@ async function showAddedContact(contact: ContactView | null | undefined): Promis
 
 // ————— IDENTITY: your key, QR, share —————
 
-// Platforms whose handles can be connected for discovery, with input hints. Kept to the
-// live adapters — connecting a handle only pays off where auto-detect can run.
-// Name/colour/mark come from BRANDS.
+// Platforms a CONTACT's handles can be filed under (the contact apps editor), with input
+// hints. Kept to the live adapters — a handle only pays off where auto-detect can run.
+// Name/colour/mark come from BRANDS. My own socials are managed on the account, not here.
 const CONNECT_APPS = [
   { id: 'instagram', hint: 'Instagram username' },
   { id: 'whatsapp', hint: 'Phone, e.g. 15551234567' },
   { id: 'telegram', hint: 'Telegram username' },
   { id: 'messenger', hint: 'Facebook profile URL or numeric ID' },
 ];
-
-const LINK_ERR: Record<string, string> = {
-  'no-handle': 'Claim your @handle above first — connected accounts attach to it.',
-  'no-account': 'Your @handle predates discovery — it can’t connect accounts yet.',
-  'handle-taken': 'Another Ekko identity already linked that account.',
-  'bad-handle': 'That doesn’t look right — check the username.',
-  'bad-proof': 'Couldn’t prove your key to the directory — try again.',
-  'directory-insecure': 'Couldn’t reach the directory securely — try again later.',
-  'directory-unreachable': 'Couldn’t reach the directory — try again.',
-  'directory-error': 'The directory had a problem — try again.',
-  'verify-unavailable': 'Automatic verification for this app isn’t live yet — the link stays reserved until it is.',
-  'verify-expired': 'That code expired — start verification again.',
-  locked: 'Ekko is locked.',
-};
-
-// Platforms with a live ownership verifier (an Ekko bot that receives the one-time code).
-// The server stays authoritative — it answers verify-unavailable for anything else — this
-// set only decides where the popup offers the button.
-const VERIFIABLE = new Set(['telegram']);
 
 async function identityTab(main: HTMLElement): Promise<void> {
   const inv = await send({ type: 'invite' });
@@ -803,30 +784,21 @@ async function identityTab(main: HTMLElement): Promise<void> {
       <div id="acctMsg" class="msg" role="alert"></div>
     </div>
 
-    <div class="card tight">
-      <div style="padding:10px 0 2px"><h2 style="margin:0">Connected accounts beta</h2>
-      <p class="muted" style="margin:4px 0 6px">Reserve the accounts you use with a one-way code. Friends receive suggestions only after Ekko can verify that you control the account.</p></div>
+    <div class="card">
+      <h2>Connected accounts</h2>
       ${
-        username
-          ? CONNECT_APPS.map((a) => {
-              const b = BRANDS[a.id]!;
-              const linked = handles[a.id];
-              return `<div class="listrow" data-conn="${a.id}">
-                <span class="appicon" style="${brandStyle(b)}">${brandSvg(b)}</span>
-                ${
-                  linked
-                    ? `<div class="grow" style="min-width:0"><div class="strong ellip">${a.id === 'whatsapp' ? esc(linked) : `@${esc(linked)}`}</div><div class="muted">${b.name}</div></div>
-                       <span class="chip no" data-conn-chip="${a.id}">checking…</span>
-                       <button class="btn ghost" data-conn-verify="${a.id}" hidden>Verify</button>
-                       <button class="btn ghost sq danger" data-conn-unlink="${a.id}" title="Unlink" aria-label="Unlink ${b.name}">${I.trash}</button>`
-                    : `<div class="grow" style="min-width:0"><input data-conn-in name="${a.id}-handle" aria-label="${b.name} account handle" placeholder="${a.hint}" autocomplete="off" spellcheck="false" maxlength="100" style="margin:0" /></div>
-                       <button class="btn ghost" data-conn-go>Link</button>`
-                }
-              </div>`;
-            }).join('')
-          : `<p class="hint" style="padding-bottom:10px">Claim your @handle above first — connected accounts attach to it.</p>`
+        socialChips(handles) ||
+        `<p class="muted" style="margin:4px 0 0">${
+          acct.signedIn
+            ? 'Nothing linked yet. Add the accounts you use in the Ekko app on your phone.'
+            : 'Sign in above and the accounts linked to your Ekko account appear here.'
+        }</p>`
       }
-      <div id="connMsg" class="msg err" role="alert"></div>
+      ${
+        socialChips(handles)
+          ? `<p class="hint">These live on your Ekko account — manage them in the Ekko app on your phone; they sync here on their own.</p>`
+          : ''
+      }
     </div>`;
 
   // QR loads lazily
@@ -933,94 +905,6 @@ async function identityTab(main: HTMLElement): Promise<void> {
       await identityTab(main);
     });
 
-  // The badge is the DIRECTORY's answer, fetched after paint — never a local guess.
-  if (Object.keys(handles).length) {
-    void send({ type: 'handleStatus' }).then((res) => {
-      for (const chip of $$('[data-conn-chip]')) {
-        const platform = chip.dataset.connChip!;
-        const state = res.verifiedHandles?.[platform];
-        chip.textContent = state === true ? 'verified' : state === false ? 'verification pending' : 'couldn’t check';
-        chip.className = `chip ${state === true ? 'ok' : 'no'}`;
-        // Offer the ceremony only where a verifier exists and the mapping still needs it.
-        if (state === false && VERIFIABLE.has(platform)) $(`[data-conn-verify="${platform}"]`)?.removeAttribute('hidden');
-      }
-    });
-  }
-
-  const connMsg = (code: string) => {
-    $('#connMsg').textContent = LINK_ERR[code] ?? humanError(code);
-  };
-
-  for (const btn of $$('[data-conn-unlink]')) {
-    const platform = btn.dataset.connUnlink!;
-    armed(btn, `Unlink ${BRANDS[platform]?.name ?? platform}?`, async () => {
-      const res = await send({ type: 'unlinkPlatform', platform });
-      if (res.error) return connMsg(res.error);
-      await identityTab(main);
-    });
-  }
-
-  // The ownership ceremony: get a one-time code, send it to the Ekko bot FROM the account
-  // being claimed, and poll until the platform has asserted the sender. Server state is the
-  // only truth — the chip flips when handleStatus says so, never optimistically.
-  for (const btn of $$('[data-conn-verify]')) {
-    btn.addEventListener('click', async () => {
-      const platform = btn.dataset.connVerify!;
-      const row = btn.closest('.listrow')!;
-      if (row.nextElementSibling?.classList.contains('verify-panel')) return;
-      setBusy(btn as HTMLButtonElement, true);
-      const res = await send({ type: 'verifyStart', platform });
-      setBusy(btn as HTMLButtonElement, false);
-      if (res.error || !res.verify) return connMsg(res.error ?? 'directory-error');
-      const { code, checkId, bot } = res.verify;
-      const panel = document.createElement('div');
-      panel.className = 'verify-panel';
-      panel.innerHTML = `
-        <p class="muted">Send this code to <strong>@${esc(bot.username)}</strong> on Telegram — from the account you are linking. Ekko confirms by whom it arrives, so nobody can verify a handle they don’t control.</p>
-        <div class="phrase" style="margin-top:6px">${esc(code)}</div>
-        <div class="row" style="margin-top:6px">
-          <button class="btn grow" data-verify-copy>Copy code</button>
-          <a class="btn primary" href="https://t.me/${encodeURIComponent(bot.username)}?start=${encodeURIComponent(code)}" target="_blank" rel="noreferrer">Open Telegram</a>
-        </div>
-        <div class="msg" data-verify-status role="status" aria-live="polite">Waiting for your message to the bot…</div>`;
-      row.after(panel);
-      $('[data-verify-copy]', panel)?.addEventListener('click', () => copyFeedback($('[data-verify-copy]', panel), code));
-      const status = $('[data-verify-status]', panel);
-      const poll = setInterval(async () => {
-        if (!panel.isConnected) return clearInterval(poll); // tab re-rendered under us
-        const r = await send({ type: 'verifyCheck', checkId });
-        if (r.verifyStatus === 'verified') {
-          clearInterval(poll);
-          await identityTab(main); // chip re-reads handleStatus: server state, not our hope
-          return;
-        }
-        if (r.error && r.error !== 'directory-unreachable') {
-          clearInterval(poll);
-          status.className = 'msg err';
-          status.textContent = LINK_ERR[r.error] ?? humanError(r.error);
-        }
-      }, 3000);
-    });
-  }
-
-  for (const row of $$('[data-conn]')) {
-    const go = async () => {
-      const input = $<HTMLInputElement>('[data-conn-in]', row);
-      const val = input?.value.trim();
-      if (!val) return;
-      const btn = $<HTMLButtonElement>('[data-conn-go]', row);
-      setBusy(btn, true);
-      const res = await send({ type: 'linkPlatform', platform: row.dataset.conn!, handle: val });
-      if (res.error) {
-        setBusy(btn, false);
-        $('#connMsg').textContent = LINK_ERR[res.error] ?? humanError(res.error);
-        return;
-      }
-      await identityTab(main);
-    };
-    $('[data-conn-go]', row)?.addEventListener('click', go);
-    $<HTMLInputElement>('[data-conn-in]', row)?.addEventListener('keydown', (e) => (e as KeyboardEvent).key === 'Enter' && void go());
-  }
   if (username) $('#copyHandle')?.addEventListener('click', () => copyFeedback($('#copyHandle'), `@${username}`));
   else {
     const claim = async () => {

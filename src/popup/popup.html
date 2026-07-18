@@ -281,15 +281,14 @@
 
       .listrow { display: flex; align-items: center; gap: 11px; padding: 11px 0; border-top: 1px solid var(--line-soft); }
       .listrow:first-child { border-top: none; }
-      /* Inset editors that open beneath a listrow: the contact apps editor and the
-         ownership-verification panel. Quiet inset wash, never a second card. */
-      .apps-edit, .verify-panel {
+      /* Inset editor that opens beneath a listrow: the contact apps editor.
+         Quiet inset wash, never a second card. */
+      .apps-edit {
         margin: 2px 0 9px; padding: 4px 12px 12px;
         background: color-mix(in srgb, var(--ink, #14161d) 3%, var(--surface));
         border: 1px solid var(--line-soft); border-radius: 12px;
       }
       .apps-edit .listrow { border-top: none; padding: 7px 0; }
-      .verify-panel .phrase { text-align: center; letter-spacing: 0.08em; }
       /* Avatar hue (--av) is the cross-device identity color — the same palette hashes a
          handle on the phone (ios Platforms.swift). The wash and the AA-deepened initials
          are derived here so the constants never fork per theme. */

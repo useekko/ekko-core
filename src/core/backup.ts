@@ -45,11 +45,27 @@ export interface BackupBlob {
   ct: string; // b64url
 }
 
-/** What is actually inside the blob. Sessions are deliberately absent — see sealBackup. */
+/** A session, as it travels inside the blob (bytes as base64url — the vault's own wire shape,
+ *  minus handshakeWire, which is pending-setup replay state, not history capability). threadId
+ *  and acct ride along verbatim: a restored thread-less session without its `acct` marker would
+ *  be quarantined as a legacy artifact by the thread migration. */
+export interface BackupSession {
+  id: string;
+  key0to1: string;
+  key1to0: string;
+  myParty: number;
+  peerFingerprint: string;
+  threadId?: string;
+  acct?: boolean;
+}
+
+/** What is actually inside the blob. `sessions` is optional both ways: blobs sealed by older
+ *  clients open without it, and clients that don't understand it ignore the field. */
 export interface BackupPayload {
   v: number;
   mnemonic: string;
   contacts: { bundle: string; label: string; verified: boolean; addedAt: number }[];
+  sessions?: BackupSession[];
 }
 
 export class BackupError extends Error {}
@@ -91,12 +107,14 @@ function header(v: number, kdf: string, iter: number): Uint8Array {
 }
 
 /**
- * Seal the identity (as its 24 words) and the contact list.
+ * Seal the identity (as its 24 words), the contact list, and the session keys.
  *
- * Sessions are NOT included, on purpose: they are per-thread ratchet state that both sides
- * re-establish from a fresh handshake on the next message, so carrying them would grow the blob
- * and buy nothing. Contacts ARE included — re-adding people by hand is the actual pain of moving
- * to a new device, and it is the thing the 24 words alone do not solve.
+ * Sessions were originally excluded ("both sides re-establish from a fresh handshake") — that
+ * rationale was wrong in practice: a fresh handshake opens a NEW channel, and history sealed
+ * under the old one dies with it (2026-07: the "waiting for the secure channel" graveyard).
+ * Sessions are the only capability that reads past messages, they are ~100 bytes each and
+ * capped at four per peer, and the blob already carries the mnemonic — the master secret — so
+ * including them adds no new exposure class.
  */
 export function sealBackup(payload: Omit<BackupPayload, 'v'>, passphrase: string): BackupBlob {
   if (passphrase.length < MIN_PASSPHRASE_LENGTH) {

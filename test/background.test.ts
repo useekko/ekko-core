@@ -332,6 +332,31 @@ describe('background handler', () => {
     expect(settled.tokens!.some((token) => token.startsWith('EKK1H:'))).toBe(false);
   });
 
+  it('names a dead channel honestly: unknown session beside a live one is old-session, not waiting', async () => {
+    const peer = generateIdentity();
+    const added = await call({ type: 'addContact', invite: formatInvite(peer.bundle), label: 'Rotato' });
+    const t = thread('tOldSession');
+    await call({ type: 'bindThread', threadId: t, fingerprint: added.contact!.fingerprint });
+
+    // A live channel with this peer exists…
+    const hs = startHandshake(peer, await myBundle());
+    await call({ type: 'ingest', threadId: t, kind: 'handshake', raw: formatHandshake(hs.wire) });
+
+    // …but this message was sealed under a session this vault never held (pre-restore /
+    // pre-rotation history). Beside a live channel for the same peer, that is dead — say so.
+    const lost = startHandshake(peer, await myBundle()).session;
+    const token = formatMessage(sealMessage(lost, 'ghost'));
+    expect((await call({ type: 'ingest', threadId: t, kind: 'message', raw: classify(token)!.raw })).error).toBe('old-session');
+
+    // The same unknown session with NO channel for the peer stays plain no-session (still waiting).
+    const stranger = generateIdentity();
+    const addedS = await call({ type: 'addContact', invite: formatInvite(stranger.bundle), label: 'No channel yet' });
+    const t2 = thread('tNoChannel');
+    await call({ type: 'bindThread', threadId: t2, fingerprint: addedS.contact!.fingerprint });
+    const early = formatMessage(sealMessage(startHandshake(stranger, await myBundle()).session, 'early'));
+    expect((await call({ type: 'ingest', threadId: t2, kind: 'message', raw: classify(early)!.raw })).error).toBe('no-session');
+  });
+
   it('refuses to overwrite an existing vault', async () => {
     expect((await call({ type: 'create', passphrase: 'different' })).error).toBe('vault-exists');
   });
@@ -578,146 +603,6 @@ describe('background handler', () => {
       globalThis.fetch = (async () =>
         new Response(JSON.stringify({ invite: mine, verified: true }), { status: 200 })) as typeof fetch;
       expect((await call({ type: 'resolvePeer', platform: 'instagram', handle: 'me' })).error).toBe('thats-you');
-    } finally {
-      globalThis.fetch = realFetch;
-    }
-  });
-
-  it('links platform handles through the ownership challenge and remembers them', async () => {
-    const server = generateIdentity(); // its xPub doubles as a well-formed challenge
-    const calls: { url: string; body?: Record<string, unknown> }[] = [];
-    const realFetch = globalThis.fetch;
-    globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
-      const u = String(url);
-      calls.push({ url: u, body: init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : undefined });
-      if (u.endsWith('/auth/challenge'))
-        return new Response(JSON.stringify({ challengeId: 'c1', challenge: b64uEncode(server.xPub) }), { status: 200 });
-      return new Response(JSON.stringify({ ok: true }), { status: 200 });
-    }) as typeof fetch;
-    try {
-      // Discovery hangs off the claimed @handle from the previous test.
-      expect((await call({ type: 'dirClaim', username: 'kirill' })).ok).toBe(true);
-
-      const linked = await call({ type: 'linkPlatform', platform: 'instagram', handle: '@KV.gram' });
-      expect(linked.ok).toBe(true);
-      expect(linked.handles).toEqual({ instagram: 'kv.gram' });
-      const linkCall = calls.at(-1)!;
-      expect(linkCall.url).toBe('https://useekko.app/handles/link');
-      expect(linkCall.body).toMatchObject({ platform: 'instagram', handle: 'kv.gram', challengeId: 'c1' });
-      expect(typeof linkCall.body!.proof).toBe('string'); // the key proof actually rode along
-
-      // Phone-number platforms canonicalize to digits, and links persist in the vault.
-      const wa = await call({ type: 'linkPlatform', platform: 'whatsapp', handle: '+1 (555) 123-4567' });
-      expect(wa.handles).toEqual({ instagram: 'kv.gram', whatsapp: '15551234567' });
-      expect((await call({ type: 'invite' })).handles).toEqual({ instagram: 'kv.gram', whatsapp: '15551234567' });
-    } finally {
-      globalThis.fetch = realFetch;
-    }
-  });
-
-  it('handleStatus reports the DIRECTORY’s verdict per mapping, never a hardcoded "pending"', async () => {
-    const realFetch = globalThis.fetch;
-    const seen: string[] = [];
-    globalThis.fetch = (async (url: string | URL) => {
-      const u = String(url);
-      seen.push(u);
-      // The server verified Instagram; WhatsApp is still an unverified reservation.
-      if (u.includes('platform=instagram')) return new Response(JSON.stringify({ verified: true }), { status: 200 });
-      return new Response(JSON.stringify({ verified: false }), { status: 200 });
-    }) as typeof fetch;
-    try {
-      // Both mappings were linked by the previous test.
-      const res = await call({ type: 'handleStatus' });
-      expect(res.verifiedHandles).toEqual({ instagram: true, whatsapp: false });
-      // Own handles are hashed on-device for this check too — never sent in the clear.
-      expect(seen.every((u) => u.includes('handle_hash=') && !u.includes('kv.gram'))).toBe(true);
-
-      // A directory that doesn't answer leaves the platform ABSENT (unknown), so the popup
-      // can say "couldn't check" instead of asserting a state it doesn't have.
-      globalThis.fetch = (async () => new Response(null, { status: 500 })) as typeof fetch;
-      expect((await call({ type: 'handleStatus' })).verifiedHandles).toEqual({});
-    } finally {
-      globalThis.fetch = realFetch;
-    }
-  });
-
-  it('runs the ownership ceremony: start hands over the code, check adopts the platform-asserted handle', async () => {
-    const server = generateIdentity();
-    const realFetch = globalThis.fetch;
-    const calls: { url: string; body?: Record<string, unknown> }[] = [];
-    globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
-      const u = String(url);
-      calls.push({ url: u, body: init?.body ? (JSON.parse(String(init.body)) as Record<string, unknown>) : undefined });
-      if (u.endsWith('/auth/challenge'))
-        return new Response(JSON.stringify({ challengeId: 'c2', challenge: b64uEncode(server.xPub) }), { status: 200 });
-      if (u.endsWith('/verify/start'))
-        return new Response(
-          JSON.stringify({ code: 'EKKO-ABC234', checkId: 'chk1', expiresAt: 9, bot: { platform: 'telegram', username: 'EkkoVerifyBot' } }),
-          { status: 200 },
-        );
-      if (u.includes('/verify/check')) return new Response(JSON.stringify({ status: 'pending', platform: 'telegram' }), { status: 200 });
-      return new Response(JSON.stringify({ ok: true }), { status: 200 });
-    }) as typeof fetch;
-    try {
-      const started = await call({ type: 'verifyStart', platform: 'telegram' });
-      expect(started.verify).toEqual({ code: 'EKKO-ABC234', checkId: 'chk1', expiresAt: 9, bot: { platform: 'telegram', username: 'EkkoVerifyBot' } });
-      // The start is authenticated: the key proof rode along.
-      expect(calls.at(-1)!.body).toMatchObject({ platform: 'telegram', challengeId: 'c2' });
-      expect(typeof calls.at(-1)!.body!.proof).toBe('string');
-
-      expect((await call({ type: 'verifyCheck', checkId: 'chk1' })).verifyStatus).toBe('pending');
-
-      // The confirming answer carries the handle THE PLATFORM asserted (not what anyone
-      // typed) — the vault adopts it, canonicalized, exactly once.
-      globalThis.fetch = (async () =>
-        new Response(JSON.stringify({ status: 'verified', platform: 'telegram', handle: '@KV_TG' }), { status: 200 })) as typeof fetch;
-      const done = await call({ type: 'verifyCheck', checkId: 'chk1' });
-      expect(done.verifyStatus).toBe('verified');
-      expect((await call({ type: 'invite' })).handles!.telegram).toBe('kv_tg');
-
-      // A dead capability id is said plainly.
-      globalThis.fetch = (async () => new Response(JSON.stringify({ error: 'not-found' }), { status: 404 })) as typeof fetch;
-      expect((await call({ type: 'verifyCheck', checkId: 'chk1' })).error).toBe('verify-expired');
-
-      // No verifier for the platform: the server's 503 comes through as its own error.
-      globalThis.fetch = (async (url: string | URL) => {
-        const u = String(url);
-        if (u.endsWith('/auth/challenge'))
-          return new Response(JSON.stringify({ challengeId: 'c3', challenge: b64uEncode(server.xPub) }), { status: 200 });
-        return new Response(JSON.stringify({ error: 'verify-unavailable' }), { status: 503 });
-      }) as typeof fetch;
-      expect((await call({ type: 'verifyStart', platform: 'instagram' })).error).toBe('verify-unavailable');
-    } finally {
-      globalThis.fetch = realFetch;
-    }
-  });
-
-  it('unlinkPlatform removes the mapping only when the DIRECTORY confirmed the delete', async () => {
-    const server = generateIdentity();
-    const realFetch = globalThis.fetch;
-    // Server refuses: the local copy must keep showing the mapping (the popup must not lie
-    // about what the directory still serves).
-    globalThis.fetch = (async (url: string | URL) => {
-      const u = String(url);
-      if (u.endsWith('/auth/challenge'))
-        return new Response(JSON.stringify({ challengeId: 'c4', challenge: b64uEncode(server.xPub) }), { status: 200 });
-      return new Response(JSON.stringify({ error: 'server-error' }), { status: 500 });
-    }) as typeof fetch;
-    try {
-      expect((await call({ type: 'unlinkPlatform', platform: 'whatsapp' })).error).toBe('directory-error');
-      expect((await call({ type: 'invite' })).handles!.whatsapp).toBe('15551234567');
-
-      // Confirmed delete: gone locally too.
-      globalThis.fetch = (async (url: string | URL) => {
-        const u = String(url);
-        if (u.endsWith('/auth/challenge'))
-          return new Response(JSON.stringify({ challengeId: 'c5', challenge: b64uEncode(server.xPub) }), { status: 200 });
-        return new Response(JSON.stringify({ ok: true }), { status: 200 });
-      }) as typeof fetch;
-      const gone = await call({ type: 'unlinkPlatform', platform: 'whatsapp' });
-      expect(gone.ok).toBe(true);
-      expect(gone.handles!.whatsapp).toBeUndefined();
-      expect((await call({ type: 'invite' })).handles!.whatsapp).toBeUndefined();
     } finally {
       globalThis.fetch = realFetch;
     }

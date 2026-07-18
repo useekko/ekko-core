@@ -54,25 +54,10 @@ export type Req =
   // lookup, gated by the auto-discovery setting. Persists NOTHING — it returns their
   // invite as an OFFER; only an explicit user tap (acceptInvite) adds and binds.
   | { type: 'resolvePeer'; platform: string; handle: string }
-  // Opt-in discovery: link MY platform handle (hashed server-side) to my claimed @handle
-  // so friends' Ekko can recognize me in a DM. Authenticated via the key challenge.
-  | { type: 'linkPlatform'; platform: string; handle: string }
-  // Remove MY mapping for a platform (directory + local copy). The missing half of "edit
-  // your connected accounts" — without it a typo'd reservation was squatted forever.
-  | { type: 'unlinkPlatform'; platform: string }
-  // Platform ownership verification ceremony: start issues a one-time code bound to my
-  // account (send it to the Ekko bot FROM the account being claimed); check polls the
-  // outcome and heals the local handle copy with what the platform actually asserted.
-  | { type: 'verifyStart'; platform: string }
-  | { type: 'verifyCheck'; checkId: string }
   // Manually set a CONTACT's messenger handles (platform -> handle). This is how an
   // off-grid (invite/QR) contact gets chat recognition; for account connections the
   // peer's own linked socials keep merging over same-platform entries on sync.
   | { type: 'setContactHandles'; fingerprint: string; handles: Record<string, string> }
-  // Ask the directory what it currently says about MY linked handles. The popup labels each
-  // mapping from this, never from a local assumption — a mapping's verified state lives on
-  // the server and can change without the client doing anything.
-  | { type: 'handleStatus' }
   | { type: 'setDiscover'; enabled: boolean } // auto-discovery lookups on/off (default off)
   // Point this install at a different (self-hosted) directory. https-only; empty string
   // resets to the default. The directory is discovery, never a root of trust — but it does
@@ -147,15 +132,9 @@ export interface Res {
   tagline?: boolean; // whether to append the Ekko tag to sent ciphertext
   discover?: boolean; // whether auto-discovery lookups are enabled
   keepUnlocked?: boolean; // whether the master key survives a browser restart (opt-in)
-  handles?: Record<string, string>; // my linked platform handles (platform -> handle), display only
-  // handleStatus: platform -> what the DIRECTORY says about my mapping. true = verified
-  // (friends' Ekko will suggest me), false = reserved but unverified. A platform missing
-  // from the map means the directory didn't answer — say "couldn't check", never "pending".
-  verifiedHandles?: Record<string, boolean>;
-  // verifyStart: everything the popup needs to run the ownership ceremony.
-  verify?: { code: string; checkId: string; expiresAt: number; bot: { platform: string; username: string } };
-  verifyStatus?: 'pending' | 'verified'; // verifyCheck outcome
-  verifiedHandle?: string; // the platform-asserted handle (verifyCheck, first confirmation only)
+  // My linked socials (platform -> handle), display only — a read-only mirror of the
+  // account's account_handles, refreshed by acctSync. Managed on the account, never here.
+  handles?: Record<string, string>;
   directory?: string; // configured directory base URL (display only)
   username?: string; // the @username owned by this identity / just claimed
   mnemonic?: string; // the 24-word recovery phrase (create / getRecoveryPhrase), shown once for backup

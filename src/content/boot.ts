@@ -18,17 +18,18 @@ const DEBUG_KEY = 'rsn.debug';
 
 // On-page diagnostic readout (Settings → "Show debug overlay"). A live view of what the
 // adapter resolves on the real logged-in page — the fastest way to see which selector
-// drifted. Read-only, textContent-only, pointer-events:none; renders nothing unless the
-// user turned it on.
+// drifted. textContent-only and pointer-events:none, except the one copy button (bug
+// reports travel as paste, not as screenshots); renders nothing unless the user turned it on.
 function debugHud(
   adapter: SiteAdapter,
   controller: Controller,
   siteEnabled: () => boolean,
 ): (on: boolean | undefined) => void {
   let el: HTMLElement | null = null;
+  let txt: HTMLElement | null = null;
   let timer: ReturnType<typeof setInterval> | undefined;
   const render = () => {
-    if (!el) return;
+    if (!el || !txt) return;
     // Per-site switch off = Ekko is invisible on this site; the (page-readable) readout
     // must not be the one thing still announcing it.
     el.style.display = siteEnabled() ? '' : 'none';
@@ -50,7 +51,7 @@ function debugHud(
       handle: adapter.peerHandle() ?? '—',
       ...adapter.debugProbe?.(),
     };
-    el.textContent =
+    txt.textContent =
       `Ekko debug · ${adapter.platformLabel}\n` +
       Object.entries(rows)
         .map(([k, v]) => `${k}: ${String(v)}`)
@@ -62,6 +63,7 @@ function debugHud(
       timer = undefined;
       el?.remove();
       el = null;
+      txt = null;
       return;
     }
     if (el) return;
@@ -81,6 +83,28 @@ function debugHud(
     s.pointerEvents = 'none';
     s.maxWidth = '46vw';
     s.overflow = 'hidden';
+    txt = document.createElement('div');
+    el.appendChild(txt);
+    const btn = document.createElement('button');
+    btn.textContent = 'Copy debug info';
+    const b = btn.style;
+    b.pointerEvents = 'auto'; // the one interactive island in a pointer-events:none HUD
+    b.marginTop = '6px';
+    b.font = 'inherit';
+    b.color = 'inherit';
+    b.background = 'rgba(255,255,255,.08)';
+    b.border = '1px solid rgba(255,255,255,.18)';
+    b.borderRadius = '6px';
+    b.padding = '2px 8px';
+    b.cursor = 'pointer';
+    btn.addEventListener('click', () => {
+      navigator.clipboard.writeText(txt?.textContent ?? '').then(
+        () => (btn.textContent = 'Copied'),
+        () => (btn.textContent = 'Copy failed'),
+      );
+      setTimeout(() => (btn.textContent = 'Copy debug info'), 1500);
+    });
+    el.appendChild(btn);
     document.documentElement.appendChild(el);
     render();
     timer = setInterval(render, 1000);

@@ -133,8 +133,17 @@ const BADGE_TITLE: Record<BubbleStatus, string> = {
 // re-renders touch NO DOM, so the MutationObserver isn't retriggered (this is what stops a
 // pending bubble looping forever). Non-destructive to the platform's own text nodes: we
 // blank their value rather than remove them, so a framework reconcile can't throw.
-export function renderBubble(el: HTMLElement, text: string, status: BubbleStatus): void {
-  if (el.dataset.rsnSrc === undefined) el.dataset.rsnSrc = el.textContent ?? '';
+export function renderBubble(
+  el: HTMLElement,
+  text: string,
+  status: BubbleStatus,
+  // preserve: platform chrome nested INSIDE the text element (Telegram's timestamp/ticks are
+  // icon-font TEXT there — blanking them erased the sent time and checkmarks). source: the
+  // adapter's already-stripped bubble text; caching raw textContent instead would glue the
+  // timestamp onto the token (TOKEN_RE eats digits and ':') and poison every later retry read.
+  opts?: { preserve?: string; source?: string },
+): void {
+  if (el.dataset.rsnSrc === undefined) el.dataset.rsnSrc = opts?.source ?? el.textContent ?? '';
   const view = `${status}\u0000${text}`;
   if (el.dataset.rsnView === view) return;
   el.dataset.rsnView = view;
@@ -143,8 +152,9 @@ export function renderBubble(el: HTMLElement, text: string, status: BubbleStatus
   // WhatsApp, and Telegram wrap message text in spans, so blanking only direct children leaves
   // the raw token next to our decrypted text (the "RSN1M:... \n Hey" bug). Never blank our OWN
   // content/badge, so a re-render can't clobber the decrypted text or a revealed ciphertext.
+  const skip = `.rsn-content, .rsn-badge${opts?.preserve ? `, ${opts.preserve}` : ''}`;
   const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, {
-    acceptNode: (n) => (n.parentElement?.closest('.rsn-content, .rsn-badge') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
+    acceptNode: (n) => (n.parentElement?.closest(skip) ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT),
   });
   const texts: Node[] = [];
   for (let n = walker.nextNode(); n; n = walker.nextNode()) texts.push(n);

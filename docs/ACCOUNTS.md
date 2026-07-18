@@ -194,8 +194,12 @@ key_backups
 ```
 
 **What lands here is ciphertext and nothing else.** The client seals its 24 words + contact list
-with XChaCha20-Poly1305 under a PBKDF2-HMAC-SHA256 (600k) key derived from a passphrase that never
-leaves the device (`src/core/backup.ts`, `ios/EkkoCore/Sources/EkkoCore/Backup.swift`). The server
++ session keys (2026-07: sessions are the only capability that reads past messages — without them
+a restore orphans history) with XChaCha20-Poly1305 under a PBKDF2-HMAC-SHA256 (600k) key derived
+from a passphrase that never leaves the device (`src/core/backup.ts`,
+`ios/EkkoCore/Sources/EkkoCore/Backup.swift` — the Swift side must add the optional `sessions`
+field for parity; until it does, an iOS "back up again" replaces the row with a blob that lacks
+them). The server
 neither parses nor validates the envelope, because a server that understood the format would be a
 server you had to trust. Consequences, in full, are in `docs/THREAT_MODEL.md`.
 
