@@ -140,7 +140,8 @@ export class WhatsAppAdapter implements SiteAdapter {
   }
 
   // The open chat's peer phone from cache; kicks off a background IndexedDB lookup on a miss.
-  private peerPhone(): string | null {
+  // Public: satisfies SiteAdapter.peerPhone (here it equals peerHandle — same digits).
+  peerPhone(): string | null {
     const ids = this.domMsgIds();
     for (const id of ids) {
       const p = this.phoneByMsgId.get(id);

@@ -432,15 +432,30 @@ export class Controller {
       // handle rode in through an accepted account connection, which is the consent moment. The
       // background still refuses if the user explicitly turned this chat off, or it's already bound.
       const wantHandle = handle?.toLowerCase().replace(/^@/, '');
-      if (wantHandle) {
+      // A linked PHONE is the same class of signal as the handle: the platform exposes a
+      // mutual contact's number (Telegram), and a phone linked on the account — their
+      // WhatsApp handle, or a phone typed into another platform's field — names the same
+      // person. Matched digits-for-digits against phone-shaped linked handles ONLY, never
+      // against ids that merely contain digits (a Messenger user id is not a phone).
+      const wantPhone = this.a.peerPhone?.() ?? null;
+      const phonesOf = (c: { handles?: Record<string, string> }): string[] =>
+        [c.handles?.['whatsapp'], c.handles?.[this.a.platform]].filter((h): h is string => !!h && /^\d{6,15}$/.test(h));
+      if (wantHandle || wantPhone) {
         const byHandle = res.contacts.filter(
-          (c) => (c.handles?.[this.a.platform] ?? '').toLowerCase().replace(/^@/, '') === wantHandle,
+          (c) =>
+            (!!wantHandle && (c.handles?.[this.a.platform] ?? '').toLowerCase().replace(/^@/, '') === wantHandle) ||
+            (!!wantPhone && phonesOf(c).includes(wantPhone)),
         );
         if (byHandle.length === 1) {
           const match = byHandle[0]!;
           // Bind-time re-check, mirroring enableChat: a fast chat switch must never bind
           // the new thread to the previous chat's person.
-          if (this.activeThreadId() !== tid || this.a.peerHandle()?.toLowerCase().replace(/^@/, '') !== wantHandle) return;
+          if (
+            this.activeThreadId() !== tid ||
+            this.a.peerHandle()?.toLowerCase().replace(/^@/, '') !== wantHandle ||
+            (this.a.peerPhone?.() ?? null) !== wantPhone
+          )
+            return;
           const bound = await this.bridge({ type: 'bindThread', threadId: tid, fingerprint: match.fingerprint, auto: true });
           if (!bound.error) {
             this.retryPending(); // resolve the binding, re-ingest pending bubbles, refresh the glyph

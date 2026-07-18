@@ -81,6 +81,11 @@ export interface SiteAdapter {
   // Provider account identifier used for directory lookup (Instagram username,
   // WhatsApp phone/JID, Telegram username). Never substitute a display name.
   peerHandle(): string | null;
+  // The peer's phone number as bare digits, when the platform exposes one that is NOT
+  // already the handle (Telegram shows a mutual contact's phone; WhatsApp's handle IS the
+  // phone). Used to auto-match a contact whose account linked a phone instead of the
+  // platform's username. Optional: most adapters have nothing to add.
+  peerPhone?(): string | null;
   findBubbles(): HTMLElement[];
   bubbleText(el: HTMLElement): string;
   // Replace a bubble's rendered text in place, with a status icon. Must be idempotent —

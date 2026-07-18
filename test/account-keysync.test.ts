@@ -186,6 +186,8 @@ globalThis.fetch = (async (input: string | URL, init?: RequestInit) => {
     return json([
       { user_id: MAYA_UID, platform: 'instagram', handle: 'maya_ig' },
       { user_id: MAYA_UID, platform: 'whatsapp', handle: '+39 333 123-4567' },
+      // Telegram accepts a phone OR a @username; a phone-shaped handle reduces to digits.
+      { user_id: MAYA_UID, platform: 'telegram', handle: '+39 (333) 123-4567' },
     ]);
   }
   throw new Error(`unexpected fetch: ${method} ${url}`);
@@ -262,8 +264,10 @@ describe('an accepted connection is an encrypted channel', () => {
     // Her linked Instagram rode down with the connection (account_handles), so a chat with
     // @maya_ig binds to THIS contact by handle instead of the directory minting a look-alike.
     expect(maya!.handles?.instagram).toBe('maya_ig');
-    // The phone-typed WhatsApp number reduced to the bare digits the adapter reads off the page.
+    // The phone-typed numbers reduced to the bare digits the adapters read off the page —
+    // on ANY platform whose field got a phone, not only WhatsApp.
     expect(maya!.handles?.whatsapp).toBe('393331234567');
+    expect(maya!.handles?.telegram).toBe('393331234567');
 
     // Jonas only ASKED. Consent has not happened, so no key crosses.
     expect(contacts.some((c) => c.label === '@jonas')).toBe(false);

@@ -35,7 +35,12 @@ export class AccountError extends Error {}
  */
 export function canonHandle(platform: string, handle: string): string {
   const h = handle.trim().replace(/^@/, '').toLowerCase();
-  return platform === 'whatsapp' ? h.replace(/[^0-9]/g, '') : h;
+  if (platform === 'whatsapp') return h.replace(/[^0-9]/g, '');
+  // A phone number typed into any platform's handle field (Telegram accepts phone or
+  // @username) reduces to digits too, so it can match the digits an adapter reads. Real
+  // usernames are untouched: they contain letters/underscores, which the shape test rejects.
+  const digits = h.replace(/[^0-9]/g, '');
+  return /^\+?[0-9\s().-]+$/.test(h) && digits.length >= 6 ? digits : h;
 }
 
 function mapError(status: number, body: unknown): AccountError {

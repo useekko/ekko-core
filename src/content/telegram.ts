@@ -222,6 +222,13 @@ export class TelegramAdapter implements SiteAdapter {
     return this.peerIdentity()?.username ?? null;
   }
 
+  // Digits or null. Telegram only exposes it for mutual contacts — which is exactly the
+  // case where two people just traded numbers and linked THOSE on their accounts, not
+  // their @usernames. The controller matches it against phone-shaped linked handles.
+  peerPhone(): string | null {
+    return this.peerIdentity()?.phone ?? null;
+  }
+
   private composer(): HTMLElement | null {
     const boxes = Array.from(document.querySelectorAll<HTMLElement>(this.sel().composer)).filter(isVisible);
     // Bottom-most visible input is the active chat composer (reply/edit boxes stack above,

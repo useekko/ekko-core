@@ -103,7 +103,11 @@ class FakeAdapter implements SiteAdapter {
   direct: boolean | null = true;
   peer: string | null = null;
   handle: string | null | undefined;
+  phone: string | null = null;
   constructor(readonly maxMessageLen = 900) {}
+  peerPhone() {
+    return this.phone;
+  }
   threadId() {
     return this.tid;
   }
@@ -534,6 +538,36 @@ describe('controller end-to-end', () => {
     expect(resolved).toBe(false);
     expect(bound).toBe(thread());
     expect(a.states.at(-1)).toMatchObject({ kind: 'on', label: '@kirill' });
+  });
+
+  it('binds automatically by linked PHONE when the platform exposes it and no username is linked', async () => {
+    // The Telegram case: two people trade numbers (mutual contacts, so Telegram exposes
+    // the phone) and link their PHONES on their accounts, not their @usernames. The digits
+    // must match a phone-shaped linked handle; ids that merely contain digits never count.
+    const a = new FakeAdapter();
+    a.peer = 'Matteo Negri'; // display name matches no contact label
+    a.handle = null; // no @username anywhere
+    a.phone = '393331234567';
+    const MATTEO = { fingerprint: 'f1', label: '@matteo', verified: false, safetyNumber: '0', fingerprintHex: '0', handles: { whatsapp: '393331234567' } };
+    const DECOY = { fingerprint: 'f2', label: '@decoy', verified: false, safetyNumber: '0', fingerprintHex: '0', handles: { messenger: '100393331234567' } };
+    let bound: string | null = null;
+    let resolved = false;
+    const ctrl = new Controller(a, async (req) => {
+      if (req.type === 'threadContact') return { contact: bound === thread() ? MATTEO : null };
+      if (req.type === 'contacts') return { contacts: [MATTEO, DECOY] };
+      if (req.type === 'bindThread') {
+        expect(req.fingerprint).toBe('f1');
+        bound = req.threadId;
+        return { ok: true };
+      }
+      if (req.type === 'resolvePeer') resolved = true;
+      return {};
+    });
+    await ctrl.scan();
+    await sleep(20);
+    expect(resolved).toBe(false);
+    expect(bound).toBe(thread());
+    expect(a.states.at(-1)).toMatchObject({ kind: 'on', label: '@matteo' });
   });
 
   it('degrades to a one-click offer when the broker refuses the auto-bind (user opted out)', async () => {
