@@ -58,15 +58,29 @@ const SELECTORS = {
   sendIcon: '#main footer [data-icon="wds-ic-send-filled"], #main footer [data-icon="send"]',
 } as const;
 
-// Peer phone from a model-storage `message` record. In a 1:1 the two parties are `from`
-// (sender) and `to` (recipient), each "<digits>@c.us"; the peer is the one that is not me,
-// and the key prefix tells us which: `true_` = I sent it (peer = `to`), `false_` = the peer
-// sent it (peer = `from`). Anything not a plain @c.us phone (group @g.us, @lid, status 0@c.us)
-// yields null. Pure + exported for the unit test.
-export function peerPhoneFromMessage(rec: { from?: unknown; to?: unknown }, fromMe: boolean): string | null {
-  const party = fromMe ? rec.to : rec.from;
+// The phone inside a party/id value: "<digits>@c.us" as a plain string or {_serialized}.
+// Anything else (group @g.us, @lid, status 0@c.us) yields null. Pure + exported for the test.
+export function phoneOf(party: unknown): string | null {
   const s = typeof party === 'string' ? party : (party as { _serialized?: string } | undefined)?._serialized;
   const m = typeof s === 'string' ? s.match(/^(\d{6,15})@c\.us$/) : null;
+  return m ? m[1]! : null;
+}
+
+// Peer phone from a model-storage `message` record. In a 1:1 the two parties are `from`
+// (sender) and `to` (recipient); the peer is the one that is not me, and the key prefix
+// tells us which: `true_` = I sent it (peer = `to`), `false_` = the peer sent it (peer =
+// `from`). Pure + exported for the unit test.
+export function peerPhoneFromMessage(rec: { from?: unknown; to?: unknown }, fromMe: boolean): string | null {
+  return phoneOf(fromMe ? rec.to : rec.from);
+}
+
+// LID era (observed live 2026-07-18): a 1:1 message key became "<bool>_<lid>@lid_<msgid>"
+// and incoming messages carry a bare "<lid>@lid" in `from` — no phone anywhere in the
+// record. The phone moved to the `contact` store: records keyed by that same "<lid>@lid"
+// carry phoneNumber "<digits>@c.us" (`lid-pn-mapping` stayed empty; the bridge is contact).
+// Pure + exported for the unit test.
+export function lidOfMessageKey(key: string): string | null {
+  const m = key.match(/^(?:true|false)_(\d+@lid)_[^_]+$/);
   return m ? m[1]! : null;
 }
 
@@ -108,7 +122,16 @@ async function lookupPeerPhone(msgId: string): Promise<string | null> {
     const rec = (await idbReq(db.transaction('message', 'readonly').objectStore('message').get(fullKey))) as
       | { from?: unknown; to?: unknown }
       | undefined;
-    return rec ? peerPhoneFromMessage(rec, String(fullKey).startsWith('true_')) : null;
+    const direct = rec ? peerPhoneFromMessage(rec, String(fullKey).startsWith('true_')) : null;
+    if (direct) return direct;
+    // LID era: the record has no @c.us party — resolve the chat's lid (off the key) through
+    // the contact store instead. Groups (@g.us keys) never match, so they stay null.
+    const lid = lidOfMessageKey(String(fullKey));
+    if (!lid || !db.objectStoreNames.contains('contact')) return null;
+    const contact = (await idbReq(db.transaction('contact', 'readonly').objectStore('contact').get(lid))) as
+      | { phoneNumber?: unknown }
+      | undefined;
+    return contact ? phoneOf(contact.phoneNumber) : null;
   } catch {
     return null;
   } finally {
