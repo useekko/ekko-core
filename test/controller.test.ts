@@ -764,6 +764,46 @@ describe('controller end-to-end', () => {
     expect(a.bubbles[0]!._rendered).toBe('позвони мне');
   });
 
+  it('offers the session-derived link even while the 1:1 never confirms — reading unblocks, sending stays paused', async () => {
+    // The WhatsApp transcript bug: bubbles ingested while the 1:1 heuristic held, then a
+    // composer re-render flipped it back to unresolved — bubbles say "click the Ekko
+    // button to read" while the unknown-state glyph rendered no such button. A
+    // session-derived offer carries the vault's own identity, so it may keep showing.
+    const matteo = { fingerprint: 'f1', label: '@matteo', verified: false, safetyNumber: '0', fingerprintHex: '0' };
+    const a = new FakeAdapter();
+    let bound = false;
+    const ctrl = new Controller(a, async (req) => {
+      if (req.type === 'threadContact') return { contact: bound ? matteo : null };
+      if (req.type === 'contacts') return { contacts: [] };
+      if (req.type === 'bindThread') {
+        bound = true;
+        return { ok: true };
+      }
+      if (req.type === 'ingest' && req.kind === 'message')
+        return bound ? { ok: true, plaintext: 'ciao' } : { error: 'no-contact', contact: matteo };
+      return {};
+    });
+    a.add('EKK1M:bodybody');
+
+    await ctrl.scan();
+    expect(a.bubbles[0]!._status).toBe('pending');
+
+    a.direct = null; // the re-render breaks the 1:1 heuristic — surface unconfirmed again
+    await ctrl.scan();
+    expect(a.states.at(-1)).toMatchObject({ kind: 'unknown', suggestLabel: '@matteo' });
+
+    a.lastActions!.enable();
+    await sleep(250); // bind + the debounced retry rescan
+    expect(a.bubbles[0]!._status).toBe('decrypted');
+    expect(a.bubbles[0]!._rendered).toBe('ciao');
+    // Bound is not a license to send: the surface still isn't a confirmed 1:1.
+    await ctrl.sendHook().handle('hello');
+    expect(a.wire).toHaveLength(0);
+    // And the offer button retires once the thread is bound.
+    expect(a.states.at(-1)).toMatchObject({ kind: 'unknown' });
+    expect((a.states.at(-1) as { suggestLabel?: string }).suggestLabel).toBeUndefined();
+  });
+
   it('glyph "send next message unencrypted" lets exactly one message pass natively', async () => {
     const alice = generateIdentity();
     const bob = generateIdentity();

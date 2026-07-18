@@ -271,8 +271,14 @@ export class Controller {
       return;
     }
     if (this.directStatus() !== true) {
-      this.updateIndicator();
-      return;
+      // Fail closed for anything stateful — except READING the thread already pinned and
+      // vault-linked: decryption is gated by the binding and the session, never by the 1:1
+      // heuristic, and a composer re-render can flip that heuristic mid-chat (WhatsApp)
+      // after bubbles were honestly ingested. Sends stay refused in send() regardless.
+      if (tid !== this.threadId || !this.linked.get(tid)) {
+        this.updateIndicator();
+        return;
+      }
     }
     if (tid !== this.threadId) {
       this.threadId = tid;
@@ -491,7 +497,14 @@ export class Controller {
     // (or the background hasn't answered its link state). Sends are already paused on this
     // path — the glyph must say so instead of silently not existing, which reads as
     // "extension broken" and gives live selector-tuning nothing to look at.
-    if (this.directStatus() !== true) return { kind: 'unknown' };
+    if (this.directStatus() !== true) {
+      // Manual-seal landing on a surface that won't confirm: the vault may already hold the
+      // session that sealed these bubbles. That offer is the vault's own record, not a page
+      // guess, so it may surface here — otherwise the bubbles' "click the Ekko button to
+      // read" hint points at a button this state never renders.
+      const sug = this.linked.get(tid) ? undefined : this.suggest.get(tid);
+      return { kind: 'unknown', suggestLabel: sug?.sessionDerived ? sug.label : undefined };
+    }
     const link = this.linked.get(tid);
     if (link) return { kind: 'on', label: link.label, plainOnce: this.plainOnceTid === tid || undefined };
     if (this.lockedLinked.get(tid)) return { kind: 'locked' };
@@ -563,7 +576,11 @@ export class Controller {
   private async enableChat(): Promise<void> {
     const tid = this.activeThreadId();
     const s = tid ? this.suggest.get(tid) : null;
-    if (!tid || !s || this.directStatus() !== true) return;
+    if (!tid || !s) return;
+    // A session-derived offer may bind before the 1:1 confirms: it only unblocks READING
+    // bubbles whose session the vault already holds — send() independently refuses while
+    // the surface is unconfirmed, so nothing can be encrypted to a guessed recipient.
+    if (this.directStatus() !== true && !s.sessionDerived) return;
     // Re-validate at click time: if the header no longer shows the suggested name (fast
     // thread switch), binding would encrypt this thread to the WRONG person. Refuse.
     // Session-derived offers skip this: their identity is the vault's own session record,

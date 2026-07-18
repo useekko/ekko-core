@@ -32,7 +32,7 @@ import {
   sendCode, verifyCode, validSession, emailOf, userIdOf,
   fetchBackup, uploadBackup, deleteBackup, SUPABASE_URL,
   myProfile, publishKey, claimHandle as acctClaimHandle, connectionEdges, sessionSetups, publishSessionSetup,
-  acceptConnection, declineConnection,
+  acceptConnection, declineConnection, canonHandle,
 } from './core/account.js';
 import type { AccountSession, SessionSetupRow } from './core/account.js';
 import { isManualThreadId, isScopedThreadId, scopedThreadId } from './core/thread.js';
@@ -76,13 +76,7 @@ const PLATFORM_RE = /^[a-z][a-z0-9]{1,19}$/; // mirrors the directory's platform
 // Auto-discovery on/off; plain (not secret), opt-in. Gates every resolvePeer lookup.
 const DISCOVER_KEY = 'rsn.discover';
 
-// One canonical form on BOTH the link and lookup sides, or the hashes never meet:
-// trim, strip a leading @, lowercase; phone-number platforms keep digits only.
-function canonHandle(platform: string, handle: string): string {
-  const h = handle.trim().replace(/^@/, '').toLowerCase();
-  return platform === 'whatsapp' ? h.replace(/[^0-9]/g, '') : h;
-}
-
+// Hashes only meet if BOTH the link and lookup sides pass through canonHandle first.
 // Hash on-device so peer handles never enter URL logs, browser history, or proxy traces.
 const handleHash = (platform: string, handle: string) =>
   bytesToHex(sha256(new TextEncoder().encode(`${platform}:${handle}`)));
@@ -742,10 +736,24 @@ async function broadcastSiteSession(platform: string, enabled: boolean): Promise
 // threadId null = create the session THREADLESS (the manual seal): it is per-contact by
 // construction, and the chat it was pasted into may get linked later — a thread-pinned
 // session would then fail that same chat with wrong-thread forever.
-function sendTokens(v: VaultData, contact: Contact, fp: string, threadId: string | null, plaintext: string): string[] {
-  let session = v.sessions.findLast(
-    (s) => bytesToHex(s.peerFingerprint) === fp && (!s.threadId || s.threadId === threadId),
-  );
+async function sendTokens(v: VaultData, contact: Contact, fp: string, threadId: string | null, plaintext: string): Promise<string[]> {
+  const findSession = () =>
+    v.sessions.findLast((s) => bytesToHex(s.peerFingerprint) === fp && (!s.threadId || s.threadId === threadId));
+  let session = findSession();
+  if (!session) {
+    // First contact: the account mailbox may already carry the setup (their device staged
+    // it) or accept ours — sync once before inventing an in-chat "Secure-channel setup"
+    // preamble the user has to watch. Offline or not connected: the preamble below stands.
+    const acct = await getAccountSession();
+    if (acct) {
+      try {
+        await syncAccount(v, acct);
+        session = findSession();
+      } catch {
+        /* offline: fall back to the in-chat preamble */
+      }
+    }
+  }
   if (!session) {
     const hs = startHandshake(v.identity, contact.bundle);
     session = hs.session;
@@ -1680,7 +1688,7 @@ async function handle(req: Req, sender?: chrome.runtime.MessageSender): Promise<
       if (req.type === 'manualEncrypt') v.threadBindings[req.threadId] = fp;
       // ponytail: replay setup until authenticated peer traffic arrives; add delivery
       // receipts only if the extra first-contact chunks become a measured problem.
-      const tokens = sendTokens(v, contact, fp, req.threadId, req.plaintext);
+      const tokens = await sendTokens(v, contact, fp, req.threadId, req.plaintext);
       await persist();
       return { ok: true, tokens };
     }
@@ -1696,7 +1704,7 @@ async function handle(req: Req, sender?: chrome.runtime.MessageSender): Promise<
       const fp = String(req.fingerprint);
       const contact = findContact(v, fp);
       if (!contact) return { error: 'no-contact' };
-      const tokens = sendTokens(v, contact, fp, null, req.plaintext);
+      const tokens = await sendTokens(v, contact, fp, null, req.plaintext);
       await persist();
       return { ok: true, tokens };
     }

@@ -510,6 +510,7 @@ export class ComposerGlyph {
       h('', ICON_LOCK, 'Identifying this chat…');
       para(`Ekko can't confirm this is a private 1:1 ${this.platformLabel} chat yet, so sending here is paused.`);
       para('This can happen while the page is still loading, or if this is a group chat — Ekko only encrypts 1:1 chats. If a private chat never resolves, turn on the debug overlay in Ekko’s Settings and report what it shows.');
+      if (s.suggestLabel) btn('primary', `Read messages from ${s.suggestLabel}`, () => act?.enable());
       btn('', 'Check again', () => act?.retry());
       // The chat may never resolve — but the user still knows who they're writing to.
       // Manual seal works without recognizing the surface; its own flow owns the checks.

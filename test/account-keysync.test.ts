@@ -181,7 +181,12 @@ globalThis.fetch = (async (input: string | URL, init?: RequestInit) => {
   if (url.includes('/rest/v1/account_handles')) {
     // Maya linked her Instagram; the account_handles RLS lets an accepted connection read it. This
     // row is what lets an @maya_ig chat bind to the Maya contact instead of a directory look-alike.
-    return json([{ user_id: MAYA_UID, platform: 'instagram', handle: 'maya_ig' }]);
+    // The WhatsApp row is stored as the phone types it — the adapter reads bare digits off the
+    // page, so the sync must canonicalize or auto-bind never fires (the @matteo bug).
+    return json([
+      { user_id: MAYA_UID, platform: 'instagram', handle: 'maya_ig' },
+      { user_id: MAYA_UID, platform: 'whatsapp', handle: '+39 333 123-4567' },
+    ]);
   }
   throw new Error(`unexpected fetch: ${method} ${url}`);
 }) as typeof fetch;
@@ -257,6 +262,8 @@ describe('an accepted connection is an encrypted channel', () => {
     // Her linked Instagram rode down with the connection (account_handles), so a chat with
     // @maya_ig binds to THIS contact by handle instead of the directory minting a look-alike.
     expect(maya!.handles?.instagram).toBe('maya_ig');
+    // The phone-typed WhatsApp number reduced to the bare digits the adapter reads off the page.
+    expect(maya!.handles?.whatsapp).toBe('393331234567');
 
     // Jonas only ASKED. Consent has not happened, so no key crosses.
     expect(contacts.some((c) => c.label === '@jonas')).toBe(false);
@@ -410,6 +417,29 @@ describe('an incoming request is a visible consent decision', () => {
     expect(conns.some((c) => c.id === CONN_PIA)).toBe(false);
     expect((await call({ type: 'acctSync' })).requests).toEqual([]);
     expect(((await call({ type: 'contacts' })).contacts ?? []).some((c) => c.label === '@pia')).toBe(false);
+  });
+});
+
+describe('the send side heals from the mailbox too', () => {
+  it('first send with no session pulls the mailbox instead of publishing an in-chat setup', async () => {
+    // Noah accepted above; his key crossed but no session exists on this side — his phone
+    // stages the setup AFTER this browser's last sync. The old behavior: the next send
+    // invents an in-chat EKK1H preamble ("Secure-channel setup" sitting in the conversation).
+    const hs = startHandshake(NOAH, myBundle());
+    setupRows.push({
+      connection_id: CONN_NOAH,
+      sender: NOAH_UID,
+      recipient: MY_UID,
+      sender_key: bytesToHex(fpOf(NOAH.bundle)),
+      recipient_key: bytesToHex(fpOf(myBundle())),
+      handshake: 'EKK1H:' + b64uEncode(hs.wire),
+    });
+    const noah = (await call({ type: 'contacts' })).contacts!.find((c) => c.label === '@noah')!;
+    await call({ type: 'bindThread', threadId: 'ig:noah-dm', fingerprint: noah.fingerprint });
+
+    const res = await call({ type: 'encrypt', threadId: 'ig:noah-dm', plaintext: 'no setup in the chat' });
+    expect(res.tokens).toHaveLength(1); // one EKK1M — the setup came through the account mid-send
+    expect(openMessage(hs.session as Session, decodeBody(res.tokens![0]!))).toBe('no setup in the chat');
   });
 });
 

@@ -38,7 +38,10 @@ export interface SendHook {
 //             installed" and cost us a live-debugging session.
 export type ChatState =
   | { kind: 'hidden' }
-  | { kind: 'unknown' }
+  // suggestLabel: a SESSION-DERIVED offer only — the vault already holds the session that
+  // sealed this chat's bubbles, so the one-tap link may show before the 1:1 is confirmed.
+  // Reading is all it unblocks; sends stay paused until the surface resolves.
+  | { kind: 'unknown'; suggestLabel?: string }
   | {
       kind: 'off';
       suggestLabel?: string;

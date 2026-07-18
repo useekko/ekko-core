@@ -26,6 +26,18 @@ export interface AccountSession {
 
 export class AccountError extends Error {}
 
+/**
+ * One canonical spelling per messenger handle: trimmed, lowercase, no leading @. A WhatsApp
+ * handle is a phone number, so it reduces to bare digits — the adapter reads digits off the
+ * page, and a "+39 333 …" typed into a linked-handle field must still match them. Every
+ * handle entering the vault (directory links, contact edits, account_handles sync) goes
+ * through here, or auto-match quietly never fires.
+ */
+export function canonHandle(platform: string, handle: string): string {
+  const h = handle.trim().replace(/^@/, '').toLowerCase();
+  return platform === 'whatsapp' ? h.replace(/[^0-9]/g, '') : h;
+}
+
 function mapError(status: number, body: unknown): AccountError {
   const o = (body ?? {}) as Record<string, unknown>;
   const text = ['error_code', 'code', 'msg', 'message', 'error_description']
@@ -272,7 +284,8 @@ export async function connectionEdges(s: AccountSession): Promise<ConnectionEdge
       const byUser = new Map<string, Record<string, string>>();
       for (const h of socials) {
         const m = byUser.get(h.user_id) ?? {};
-        m[h.platform.toLowerCase()] = String(h.handle).toLowerCase().replace(/^@/, '');
+        const platform = h.platform.toLowerCase();
+        m[platform] = canonHandle(platform, String(h.handle));
         byUser.set(h.user_id, m);
       }
       for (const p of peers) p.handles = byUser.get(p.userId);
