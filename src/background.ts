@@ -209,6 +209,21 @@ async function getVault(): Promise<VaultData | null> {
 // dirty flag rides the same storage write as the vault blob, so a worker killed mid-flight
 // picks the upload back up on the next rehydrate.
 const BACKUP_DIRTY = 'rsn.backupDirty';
+
+// --- update notice ---
+const UPDATE_KEY = 'rsn.update';
+const UPDATE_CHECK_EVERY_MS = 24 * 3600_000;
+
+/** Is a > b, both "x.y.z"? Non-numeric parts compare as 0 — a weird tag never claims newer. */
+function newerVersion(a: string, b: string): boolean {
+  const pa = a.split('.').map(Number);
+  const pb = b.split('.').map(Number);
+  for (let i = 0; i < 3; i++) {
+    const d = (pa[i] || 0) - (pb[i] || 0);
+    if (d) return d > 0;
+  }
+  return false;
+}
 let dirtyChecked = false;
 let backingUp = false;
 let backupQueued = false;
@@ -1787,6 +1802,43 @@ async function handle(req: Req, sender?: chrome.runtime.MessageSender): Promise<
         await persist();
       }
       return { ok: true, plaintext };
+    }
+
+    // Is a newer Ekko out? Store installs auto-update on their own, but the GitHub zip,
+    // the unpacked dev build and the Safari container app do not — they'd silently rot
+    // (today's WhatsApp LID drift broke exactly those installs with no way to know). One
+    // anonymous GET against the public releases list, cached a day; the popup shows a
+    // quiet notice, never an interruption.
+    case 'updateCheck': {
+      const current = ext.runtime.getManifest().version;
+      const cached = (await ext.storage.local.get(UPDATE_KEY))[UPDATE_KEY] as { at: number; latest: string } | undefined;
+      let latest = cached?.latest ?? current;
+      if (!cached || Date.now() - cached.at > UPDATE_CHECK_EVERY_MS) {
+        try {
+          const r = await fetch('https://api.github.com/repos/useekko/ekko-core/releases?per_page=10');
+          if (r.ok) {
+            const list = (await r.json()) as { tag_name?: string; draft?: boolean; prerelease?: boolean }[];
+            // Skip the rolling `nightly` tag and drafts: only a real vX.Y.Z counts.
+            const hit = list.find((x) => !x.draft && !x.prerelease && /^v?\d+\.\d+\.\d+$/.test(x.tag_name ?? ''));
+            if (hit) {
+              latest = hit.tag_name!.replace(/^v/, '');
+              await ext.storage.local.set({ [UPDATE_KEY]: { at: Date.now(), latest } });
+            }
+          }
+        } catch {
+          /* offline: answer from the cache (or say "current"), never an error state */
+        }
+      }
+      const updateAvailable = newerVersion(latest, current);
+      // Nudge the store's own updater where one exists; sideloads rely on the notice.
+      if (updateAvailable) {
+        try {
+          void (ext.runtime as { requestUpdateCheck?: () => Promise<unknown> }).requestUpdateCheck?.();
+        } catch {
+          /* not available on this browser/install kind */
+        }
+      }
+      return { ok: true, current, latest, updateAvailable };
     }
 
     case 'openPopup': {

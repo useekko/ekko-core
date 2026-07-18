@@ -64,6 +64,9 @@ export type Req =
   // see lookup metadata, which is exactly why self-hosting it is supported.
   | { type: 'setDirectory'; url: string }
   | { type: 'openPopup' } // content script asks the browser to open the toolbar popup (unlock)
+  // Is a newer release out? Answered from a day-cached anonymous read of the public GitHub
+  // releases list — the popup shows a quiet notice for installs with no store auto-update.
+  | { type: 'updateCheck' }
   | { type: 'changePassphrase'; oldPassphrase: string; newPassphrase: string }
   | { type: 'getRecoveryPhrase' } // return the vault's 24-word phrase (unlocked only) for backup
   | { type: 'importIdentity'; passphrase: string; mnemonic: string } // restore an identity from its phrase
@@ -136,6 +139,10 @@ export interface Res {
   // account's account_handles, refreshed by acctSync. Managed on the account, never here.
   handles?: Record<string, string>;
   directory?: string; // configured directory base URL (display only)
+  // updateCheck: current install vs the newest published release.
+  current?: string;
+  latest?: string;
+  updateAvailable?: boolean;
   username?: string; // the @username owned by this identity / just claimed
   mnemonic?: string; // the 24-word recovery phrase (create / getRecoveryPhrase), shown once for backup
   // threadContact while LOCKED: answered from the plain linked-thread cache so the

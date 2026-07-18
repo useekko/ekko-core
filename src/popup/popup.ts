@@ -282,6 +282,18 @@ async function homeTab(main: HTMLElement): Promise<void> {
       await send({ type: 'setSite', platform: t.dataset.site!, enabled: t.checked });
       await homeTab(main);
     });
+
+  // Quiet update notice, after paint. Store installs auto-update anyway; this exists for
+  // the GitHub zip / unpacked / Safari installs, which otherwise rot silently — a stale
+  // adapter reads as "Ekko is broken", never as "Ekko needs an update".
+  void send({ type: 'updateCheck' }).then((r) => {
+    if (!r.updateAvailable || !main.querySelector('[data-site]')) return; // still on Home?
+    main.insertAdjacentHTML(
+      'afterbegin',
+      `<div class="card"><p class="muted" style="margin:0">Ekko ${esc(r.latest ?? '')} is out — this install is ${esc(r.current ?? '')}.
+        <a href="https://github.com/useekko/ekko-core/releases/latest" target="_blank" rel="noreferrer">Get the update</a></p></div>`,
+    );
+  });
 }
 
 function appRow(a: App, on: boolean, paused = false): string {

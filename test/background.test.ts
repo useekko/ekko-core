@@ -608,6 +608,41 @@ describe('background handler', () => {
     }
   });
 
+  it('updateCheck: skips nightly/prereleases, caches for a day, and never errors offline', async () => {
+    const realFetch = globalThis.fetch;
+    let fetches = 0;
+    globalThis.fetch = (async () => {
+      fetches++;
+      return new Response(
+        JSON.stringify([
+          { tag_name: 'nightly', prerelease: true },
+          { tag_name: 'v9.9.9' },
+          { tag_name: 'v0.1.0' },
+        ]),
+        { status: 200 },
+      );
+    }) as typeof fetch;
+    try {
+      const res = await call({ type: 'updateCheck' });
+      expect(res.latest).toBe('9.9.9'); // the rolling nightly tag never counts
+      expect(res.updateAvailable).toBe(true);
+
+      // Day-cached: a second ask answers from storage, no second request.
+      expect((await call({ type: 'updateCheck' })).latest).toBe('9.9.9');
+      expect(fetches).toBe(1);
+
+      // Offline after the cache exists: still the cached answer, never an error.
+      globalThis.fetch = (async () => {
+        throw new TypeError('offline');
+      }) as typeof fetch;
+      const off = await call({ type: 'updateCheck' });
+      expect(off.ok).toBe(true);
+      expect(off.latest).toBe('9.9.9');
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
   it('setContactHandles edits a contact’s apps: canonicalized in, empty means remove, all-empty clears', async () => {
     const carol = generateIdentity();
     const fp = (await call({ type: 'addContact', invite: formatInvite(carol.bundle), label: 'Carol' })).contact!.fingerprint;
