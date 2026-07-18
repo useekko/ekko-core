@@ -39,6 +39,21 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+          # Bank the download tally BEFORE --clobber wipes it: replacing an asset resets its
+          # download_count, so a rolling release under-counts forever unless we accumulate.
+          # The running total lives in downloads.json (shields endpoint schema) on the release
+          # itself; the README badge reads it. `message` also folds in the versioned releases'
+          # live counts (those assets are never clobbered), refreshed each nightly.
+          WIPED=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/nightly" \
+            --jq '[.assets[] | select(.name | endswith(".zip")) | .download_count] | add // 0' 2>/dev/null || echo 0)
+          PRIOR=$(curl -sfL "https://github.com/$GITHUB_REPOSITORY/releases/download/nightly/downloads.json" \
+            | jq -r '.nightlyTotal // empty' || true)
+          PRIOR=${PRIOR:-10} # seed: the tally the 2026-07-18 rebuilds had already wiped
+          NIGHTLY_TOTAL=$((PRIOR + WIPED))
+          OTHERS=$(gh api "repos/$GITHUB_REPOSITORY/releases?per_page=100" \
+            --jq '[.[] | select(.tag_name != "nightly") | .assets[].download_count] | add // 0' 2>/dev/null || echo 0)
+          printf '{"schemaVersion":1,"label":"downloads","message":"%s","color":"ff5f52","nightlyTotal":%s}\n' \
+            "$((NIGHTLY_TOTAL + OTHERS))" "$NIGHTLY_TOTAL" > downloads.json
           cp artifacts/ekko-*-chromium.zip ekko-nightly-chromium.zip
           cp artifacts/ekko-*-firefox.zip ekko-nightly-firefox.zip
           SUMS=$(shasum -a 256 ekko-nightly-*.zip | awk '{print "- `" $2 "` sha256 `" $1 "`"}')
@@ -47,5 +62,5 @@ jobs:
           if ! gh release view nightly >/dev/null 2>&1; then
             gh release create nightly --prerelease --title "Nightly" --notes "placeholder"
           fi
-          gh release upload nightly ekko-nightly-chromium.zip ekko-nightly-firefox.zip --clobber
+          gh release upload nightly ekko-nightly-chromium.zip ekko-nightly-firefox.zip downloads.json --clobber
           gh release edit nightly --prerelease --title "Nightly ($(date -u +%F))" --notes "$NOTES"

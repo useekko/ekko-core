@@ -8,7 +8,7 @@
 
 [![CI](https://github.com/useekko/ekko-core/actions/workflows/ci.yml/badge.svg)](https://github.com/useekko/ekko-core/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/useekko/ekko-core?include_prereleases&label=release)](https://github.com/useekko/ekko-core/releases)
-[![Downloads](https://img.shields.io/github/downloads/useekko/ekko-core/total)](https://github.com/useekko/ekko-core/releases)
+[![Downloads](https://img.shields.io/endpoint?url=https%3A%2F%2Fgithub.com%2Fuseekko%2Fekko-core%2Freleases%2Fdownload%2Fnightly%2Fdownloads.json&cacheSeconds=3600)](https://github.com/useekko/ekko-core/releases)
 [![Client License](https://img.shields.io/badge/client-GPL--3.0-blue)](LICENSE)
 [![Server License](https://img.shields.io/badge/server-AGPL--3.0-blue)](server/LICENSE)
 
