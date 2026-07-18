@@ -9,7 +9,7 @@
 //
 // Identity differs by client:
 //   • WebK: the URL hash is unreliable (it becomes "#@username"), so use data-peer-id from
-//     the header/.bubble.  peerId >= 0 = user DM, < 0 = group/channel.
+//     the chat header.  peerId >= 0 = user DM, < 0 = group/channel.
 //   • WebA: the URL hash IS a stable numeric chatId ("#<chatId>[_...]").  >= 0 = user DM.
 // The peer's @USERNAME and PHONE are NOT in the chat-header DOM (only the display name is) —
 // both clients keep the logged-in state in IndexedDB, so we read them there keyed on the peer
@@ -148,9 +148,11 @@ export class TelegramAdapter implements SiteAdapter {
       const id = location.hash.slice(1).split('_')[0];
       return id && /^-?\d+$/.test(id) ? id : null;
     }
-    const el =
-      document.querySelector<HTMLElement>('.chat-info .peer-title[data-peer-id]') ??
-      document.querySelector<HTMLElement>('.bubble[data-peer-id]');
+    // Header ONLY. A global `.bubble[data-peer-id]` looked like a fallback but was a guess:
+    // tweb keeps the previous chat's bubbles in the DOM during transitions, and a bubble's
+    // peer id is not guaranteed to be the open dialog's. A wrong id here becomes a wrong
+    // thread binding — fail visible ("identifying this chat") until the header renders.
+    const el = document.querySelector<HTMLElement>('.chat-info .peer-title[data-peer-id]');
     const id = el?.getAttribute('data-peer-id');
     return id && /^-?\d+$/.test(id) ? id : null;
   }
@@ -185,12 +187,19 @@ export class TelegramAdapter implements SiteAdapter {
     return null;
   }
 
+  private identityRetryAt = 0;
+
   private async resolveIdentity(peerId: string): Promise<void> {
-    if (this.identityBusy || this.identityByPeer.has(peerId)) return;
+    if (this.identityBusy || this.identityByPeer.has(peerId) || Date.now() < this.identityRetryAt) return;
     this.identityBusy = true;
     try {
       const found = await readPeerIdentity(this.webA(), peerId).catch(() => null);
-      this.identityByPeer.set(peerId, found ?? { username: null, phone: null });
+      // A db-level miss is retried, never cached: the read can land before Telegram has
+      // written the user record (fresh tab, mid-load), and a poisoned null kills handle
+      // auto-bind and discovery for the tab's life — the "reload until it works" bug. A
+      // REAL record with no username still caches (readPeerIdentity returns it non-null).
+      if (found) this.identityByPeer.set(peerId, found);
+      else this.identityRetryAt = Date.now() + 15_000; // ponytail: flat 15s backoff, no ladder
     } finally {
       this.identityBusy = false;
     }

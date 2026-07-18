@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WhatsAppAdapter } from '../src/content/whatsapp.js';
 import { MessengerAdapter } from '../src/content/messenger.js';
 import { TelegramAdapter } from '../src/content/telegram.js';
@@ -548,6 +548,58 @@ describe('Telegram adapter — DOM parsing', () => {
     history.replaceState(null, '', '/a/#-100200300_1');
     expect(new TelegramAdapter().threadId()).toBe('-100200300');
     expect(new TelegramAdapter().isDirectChat()).toBe(false);
+  });
+
+  it('WebK: never derives the peer from a stray bubble — header id or fail visible', () => {
+    // tweb keeps the previous chat's bubbles in the DOM during transitions, and a bubble's
+    // data-peer-id is not guaranteed to be the open dialog's. Reading it bound threads to
+    // the wrong identity ("who tf is this"). Header only; until it renders: identifying.
+    history.replaceState(null, '', '/k/');
+    document.body.innerHTML = `<div class="chat"><div class="bubble" data-peer-id="999888777"></div></div>`;
+    const tg = new TelegramAdapter();
+    expect(tg.threadId()).toBe(null);
+    expect(tg.isDirectChat()).toBe(null);
+  });
+
+  it('an early IndexedDB miss retries after the backoff instead of poisoning the tab', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'setInterval'] });
+    const g = globalThis as { indexedDB?: unknown };
+    try {
+      history.replaceState(null, '', '/k/');
+      document.body.innerHTML = `<div class="chat"><div class="chat-info"><div class="peer-title" data-peer-id="777000111">Matteo</div></div></div>`;
+      const tg = new TelegramAdapter();
+
+      // Telegram hasn't written its DB yet: the read misses. This must stay UNCACHED —
+      // the old permanent null killed auto-bind for the tab's life ("reload until it works").
+      g.indexedDB = { databases: async () => [] };
+      expect(tg.peerHandle()).toBe(null); // kicks off the background read
+      await vi.advanceTimersByTimeAsync(0);
+      expect(tg.peerHandle()).toBe(null);
+
+      // The record exists now; once the backoff passes, the next look retries and lands.
+      const record = { _: 'user', username: 'Matteo_TG', phone: '' };
+      const mkReq = (result: unknown) => {
+        const r = { result } as { result: unknown; onsuccess?: () => void };
+        queueMicrotask(() => r.onsuccess?.());
+        return r;
+      };
+      g.indexedDB = {
+        databases: async () => [{ name: 'tweb', version: 1 }],
+        open: () =>
+          mkReq({
+            objectStoreNames: ['users'],
+            transaction: () => ({ objectStore: () => ({ get: (k: unknown) => mkReq(k === 777000111 ? record : undefined) }) }),
+            close: () => {},
+          }),
+      };
+      await vi.advanceTimersByTimeAsync(16_000); // past the retry backoff
+      tg.peerHandle(); // triggers the retry
+      await vi.advanceTimersByTimeAsync(0);
+      expect(tg.peerHandle()).toBe('matteo_tg');
+    } finally {
+      vi.useRealTimers();
+      delete g.indexedDB;
+    }
   });
 
   it('WebK fast path: an #@username hash or a t.me header link names the handle without IndexedDB', () => {
