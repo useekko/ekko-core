@@ -1661,7 +1661,9 @@ async function handle(req: Req, sender?: chrome.runtime.MessageSender): Promise<
         // Adopt it so the popup's Identity tab shows @you instead of an empty claim prompt right
         // after restore. Best effort: a profile hiccup just leaves it blank, as before.
         const profile = await myProfile(s).catch(() => null);
-        if (profile?.handle) vault.username = profile.handle;
+        // USERNAME_RE mirrors the phrase path (recoverHandleAuthed validates there): the vault
+        // never adopts a server string the claim flow could not have produced.
+        if (profile?.handle && USERNAME_RE.test(profile.handle)) vault.username = profile.handle;
         await persistMaster(m);
         await persist();
         return {

@@ -162,12 +162,16 @@ describe('a new browser adopts the identity from the account', () => {
   });
 
   it('restores the SAME identity the phone had, with its people', async () => {
+    claimedHandle = 'kirill'; // the phone claimed @kirill on this account before this browser existed
     const done = await call({
       type: 'acctRestore',
       backupPassphrase: BACKUP_PASS,
       passphrase: VAULT_PASS,
     });
     expect(done.ok).toBe(true);
+    // The reported bug: onboarding said "You are @kirill" (account profile) while the popup's
+    // Identity tab (vault username) showed an empty claim prompt. Restore adopts the owned handle.
+    expect((await call({ type: 'invite' })).username).toBe('kirill');
 
     // The whole point: same keys, so the same contacts can still reach this person.
     expect(done.fingerprintHex).toBe(fingerprintHex(IDENTITY.fingerprint));
