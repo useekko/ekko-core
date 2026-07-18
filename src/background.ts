@@ -815,6 +815,12 @@ async function handle(req: Req, sender?: chrome.runtime.MessageSender): Promise<
       currentSalt = salt;
       master = m;
       vault = { identity, mnemonic, contacts: [], sessions: [], threadBindings: {} };
+      // The phrase owns its @handle in the directory (bound to the recovery key) even though
+      // the string isn't derivable from the words — adopt it now so the popup shows @you, not
+      // an empty claim prompt (the comment above promises the handle "still resolves to you").
+      // Best effort: offline or a never-claimed phrase just stays invite-only.
+      const recovered = await recoverHandleAuthed(recoveryIdentity(mnemonic));
+      if (recovered.username) vault.username = recovered.username;
       await persistMaster(master);
       await persist();
       return { ok: true, fingerprintHex: fingerprintHex(identity.fingerprint) };
@@ -1650,6 +1656,14 @@ async function handle(req: Req, sender?: chrome.runtime.MessageSender): Promise<
           .filter((c) => b64uEncode(c.bundle) !== b64uEncode(identity.bundle));
 
         vault = { identity, mnemonic, contacts: restored, sessions: [], threadBindings: {} };
+        // The backup blob carries keys and contacts, not the @handle string — but this account
+        // owns one server-side (the "You are @you" onboarding reads it from the same profile).
+        // Adopt it so the popup's Identity tab shows @you instead of an empty claim prompt right
+        // after restore. Best effort: a profile hiccup just leaves it blank, as before.
+        const profile = await myProfile(s).catch(() => null);
+        // USERNAME_RE mirrors the phrase path (recoverHandleAuthed validates there): the vault
+        // never adopts a server string the claim flow could not have produced.
+        if (profile?.handle && USERNAME_RE.test(profile.handle)) vault.username = profile.handle;
         await persistMaster(m);
         await persist();
         return {

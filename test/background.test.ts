@@ -848,8 +848,11 @@ describe('background handler', () => {
 
       const restored = await call({ type: 'importIdentity', passphrase: PASS, mnemonic: phrase });
       expect(restored.ok).toBe(true);
-      // Even if the user types a different candidate, recovery wins over creating a
-      // duplicate account and hydrates the handle actually owned by this phrase.
+      // Restore adopts the handle the phrase owns immediately — the popup must show @kirill,
+      // not an empty claim prompt right after onboarding said "You are @kirill".
+      expect((await call({ type: 'invite' })).username).toBe('kirill');
+      // Even if the user types a different candidate, the already-adopted handle wins over
+      // creating a duplicate account.
       const recovered = await call({ type: 'dirClaim', username: 'another' });
       expect(recovered.username).toBe('kirill');
       expect((await call({ type: 'invite' })).username).toBe('kirill');
