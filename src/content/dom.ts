@@ -172,19 +172,24 @@ export function renderBubble(
   }
   el.classList.remove('rsn-hush');
 
+  // Our content takes the platform text's place: BEFORE the preserved chrome, never after.
+  // Telegram floats/absolutes its trailing .time — appended after it, our text wraps around
+  // a float that now sits on the FIRST line (time stamped on top of the words, bubble too
+  // tall). insertBefore(null) degrades to append where there is no chrome.
+  const chrome = opts?.preserve ? el.querySelector(opts.preserve) : null;
   let content = el.querySelector<HTMLElement>(':scope > .rsn-content');
   const resolving = !!content; // an existing cover flipping to a new state (pending → decrypted)
   if (!content) {
     content = document.createElement('span');
     content.className = 'rsn-content';
-    el.appendChild(content);
+    el.insertBefore(content, chrome);
   }
   content.textContent = text; // verbatim — decrypted content is never parsed as HTML
 
   let badge = el.querySelector<HTMLElement>(':scope > .rsn-badge');
   if (!badge) {
     badge = document.createElement('span');
-    el.appendChild(badge);
+    el.insertBefore(badge, chrome);
   }
   badge.className = `rsn-badge rsn-badge--${status}`;
   badge.innerHTML = BADGE_ICON[status]; // constant, trusted markup
@@ -198,7 +203,7 @@ export function renderBubble(
   // mistaken for something the person typed.
   el.classList.toggle('rsn-system', status !== 'decrypted');
   if (status === 'decrypted') {
-    el.appendChild(badge);
+    el.insertBefore(badge, content.nextSibling); // lock trails the text, chrome stays last
     // Focus-pull ONLY when the words resolve before your eyes (a cover flipping to text).
     // A bubble born decrypted — your own just-sent message, or a bubble the platform
     // re-mounted and we re-rendered from the plaintext cache — renders still: replaying

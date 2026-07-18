@@ -563,6 +563,17 @@ describe('Telegram adapter — DOM parsing', () => {
     tg.replaceBubbleText(el, 'Encrypted with @maya — click the Ekko button by the message box to read', 'pending');
     expect(el.querySelector('.time')?.textContent).toBe('14:32✓✓'); // platform chrome intact
     expect(el.querySelector('.rsn-content')?.textContent).toContain('Encrypted with @maya');
+    // Native order: our text sits where the platform text was, chrome stays LAST — .time is
+    // floated/absolute and, placed before our content, it lands on top of the first line.
+    const order = Array.from(el.children).map((c) => c.className.split(' ')[0]);
+    expect(order.indexOf('rsn-content')).toBeLessThan(order.indexOf('time'));
+    expect(order.at(-1)).toBe('time');
+
+    // And when it decrypts, the lock trails the text — chrome still last.
+    tg.replaceBubbleText(el, 'ciao!', 'decrypted');
+    const after = Array.from(el.children).map((c) => c.className.split(' ')[0]);
+    expect(after.indexOf('rsn-content')).toBeLessThan(after.indexOf('rsn-badge'));
+    expect(after.at(-1)).toBe('time');
     // A retry re-reads the clean token — NOT token+timestamp (TOKEN_RE eats digits and ':',
     // so a raw cache would decode garbage and the bubble could never resolve).
     expect(el.dataset.rsnSrc).toBe('EKK1M:abc123');
