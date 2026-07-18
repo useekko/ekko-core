@@ -249,6 +249,14 @@
       .words .w .t { overflow: hidden; text-overflow: ellipsis; }
       @media (max-width: 430px) { .words { grid-template-columns: repeat(2, 1fr); } }
 
+      /* entering a phrase word-by-word (6 backup words, or 24 recovery words) — one visible box each,
+         mono because the words are machine output. 3 columns; 2 on a narrow screen. */
+      .wordin { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 7px; margin: 8px 0 2px; }
+      .wcell { position: relative; display: flex; align-items: center; }
+      .wcell .n { position: absolute; left: 9px; color: var(--faint); font-size: 10.5px; pointer-events: none; min-width: 15px; text-align: right; }
+      .wcell input { margin: 0; padding: 9px 8px 9px 30px; font-family: var(--mono); font-size: 13px; }
+      @media (max-width: 430px) { .wordin { grid-template-columns: repeat(2, 1fr); } }
+
       .warnline {
         display: block; font-size: 12.5px; color: var(--warn);
         background: rgba(217, 161, 61, 0.1); border: 1px solid rgba(150, 105, 10, 0.28);

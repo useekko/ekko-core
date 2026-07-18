@@ -39,6 +39,62 @@ function pwField(id: string, placeholder: string, autocomplete = 'current-passwo
   </div>`;
 }
 
+// A recovery/backup phrase is BIP39 words to transcribe — one visible box per word (see and fix
+// typos, unlike a masked field), paste-a-whole-phrase-anywhere to spread it across the boxes, and
+// space/Enter to move between them. No per-word validation or autocomplete on purpose: the phrase is
+// judged as a whole on submit (wrong backup passphrase / invalid mnemonic), the way wallets do it.
+// collectWords() trims + lowercases + drops empties → the canonical "w w w …" the KDF/BIP39 expect,
+// so stray caps or spaces from paper or mobile don't fail a good phrase.
+function wordEntry(id: string, count: number): string {
+  const cells = Array.from(
+    { length: count },
+    (_, i) =>
+      `<label class="wcell"><span class="n">${i + 1}</span><input data-word="${id}" data-i="${i}"
+         type="text" inputmode="text" aria-label="Word ${i + 1}"
+         autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" /></label>`,
+  ).join('');
+  return `<div class="wordin" id="${id}">${cells}</div>`;
+}
+
+function collectWords(id: string): string {
+  return $$<HTMLInputElement>(`input[data-word="${id}"]`)
+    .map((i) => i.value.trim().toLowerCase())
+    .filter(Boolean)
+    .join(' ');
+}
+
+// onDone runs when Enter is pressed on the LAST word box — the phrase is complete, so move on
+// (focus the password field, or submit if there's nothing after it).
+function wireWords(id: string, onDone: () => void): void {
+  const boxes = $$<HTMLInputElement>(`input[data-word="${id}"]`);
+  const focus = (i: number) => boxes[Math.max(0, Math.min(boxes.length - 1, i))]?.focus();
+  boxes[0]?.focus();
+  boxes.forEach((box, i) => {
+    box.addEventListener('keydown', (e) => {
+      const k = (e as KeyboardEvent).key;
+      if (k === ' ' || (k === 'Enter' && i < boxes.length - 1)) {
+        e.preventDefault();
+        focus(i + 1);
+      } else if (k === 'Enter') {
+        onDone();
+      } else if (k === 'Backspace' && box.value === '') {
+        e.preventDefault();
+        focus(i - 1);
+      }
+    });
+    // Paste the whole phrase into any box and it spreads across the rest — the common case, since
+    // people copy all the words at once from wherever they saved them.
+    box.addEventListener('paste', (e) => {
+      const text = (e as ClipboardEvent).clipboardData?.getData('text') ?? '';
+      const words = text.trim().split(/\s+/).filter(Boolean);
+      if (words.length < 2) return; // a single word: let the default paste land in this box
+      e.preventDefault();
+      words.forEach((w, j) => boxes[i + j] && (boxes[i + j]!.value = w));
+      focus(i + words.length);
+    });
+  });
+}
+
 function setBusy(btn: HTMLButtonElement, on: boolean): void {
   btn.disabled = on;
   btn.toggleAttribute('aria-busy', on);
@@ -159,8 +215,8 @@ function accountRestoreView(): void {
           : hasBackup
             ? `<p class="lead">Found an encrypted backup on <strong>${esc(email ?? 'your account')}</strong>. Give it the passphrase you saved and it opens here.</p>
                <div class="card">
-                 <label class="field" for="bp">Backup passphrase</label>
-                 ${pwField('bp', 'The six words you saved')}
+                 <label class="field">The six words you saved</label>
+                 ${wordEntry('bp', 6)}
                  <label class="field" for="p1" style="margin-top:10px">Password for this browser</label>
                  ${pwField('p1', 'Password (min. 8 characters)', 'new-password')}
                  <div id="msg" class="msg err" role="alert"></div>
@@ -171,6 +227,7 @@ function accountRestoreView(): void {
                <button id="toImport" class="btn primary block">Enter my recovery phrase</button>
                <button id="fresh" class="btn block" style="margin-top:6px">Start fresh on this account</button>`
       }
+      ${signedIn ? `<button id="switch" class="btn ghost block">Wrong account? Sign out and pick another</button>` : ''}
       <button id="back" class="btn ghost block">Back</button>
     </main>`;
 
@@ -178,11 +235,19 @@ function accountRestoreView(): void {
     $('#back').addEventListener('click', welcome);
     $('#toImport')?.addEventListener('click', importView);
     $('#fresh')?.addEventListener('click', () => startFreshView(email));
-    wireEyes(); // the has-backup branch renders bp + p1 password eyes; without this they're dead
+    // The session lives in storage.local and survives; changing accounts on the website leaves the
+    // extension holding the old one. Clear it and re-render — the sign-in card's Google flow uses
+    // prompt=select_account, so signing in again lands on whichever account the user actually picks.
+    $('#switch')?.addEventListener('click', async () => {
+      await send({ type: 'acctSignOut' });
+      accountRestoreView();
+    });
+    wireEyes(); // the has-backup branch renders the p1 password eye; without this it's dead
     if (!signedIn) wireSignInCard(() => void accountRestoreView());
+    if (signedIn && hasBackup) wireWords('bp', () => $<HTMLInputElement>('#p1').focus());
 
     $('#go')?.addEventListener('click', async () => {
-      const backupPassphrase = $<HTMLInputElement>('#bp').value;
+      const backupPassphrase = collectWords('bp');
       const passphrase = $<HTMLInputElement>('#p1').value;
       if (passphrase.length < 8) {
         return void ($('#msg').textContent = 'Your browser password needs at least 8 characters.');
@@ -222,7 +287,7 @@ function startFreshView(email?: string): void {
     <main class="fade">
       <p class="kicker">Reset</p>
       <h1>Start fresh on this account</h1>
-      <p class="lead">Signed in as <strong>${esc(email ?? 'your account')}</strong>, but there is no backup to open and no recovery phrase. Ekko can make new keys on this account and bring back the people you are connected to. Your old messages stay sealed to the old key — your account, your handle and your connections come with you.</p>
+      <p class="lead">Signed in as <strong>${esc(email ?? 'your account')}</strong>. There's no backup we can open here — either none was saved, or the passphrase is lost. Ekko makes new keys on this account and brings back the people you're connected to. The old locked backup is cleared and your old messages stay sealed to the old key, but your account, your @handle and your connections come with you.</p>
       <div class="card">
         <label class="field" for="p1">Password for this browser</label>
         ${pwField('p1', 'Password (min. 8 characters)', 'new-password')}
@@ -249,6 +314,10 @@ function startFreshView(email?: string): void {
       return void ($('#msg').textContent =
         res.error === 'vault-exists' ? 'This browser already holds an identity.' : humanError(res.error));
     }
+    // Wipe the old backup: it is sealed with the passphrase the user just told us they lost, so it can
+    // never be opened again — leaving it makes the account look restorable when it is not. Best-effort:
+    // a network hiccup here shouldn't block the new identity that already exists. No-ops if none exists.
+    await send({ type: 'acctDeleteBackup' });
     // Publish the new key to the account and pull the people you are connected to as contacts.
     await send({ type: 'acctSync' });
     setBusy(btn, false);
@@ -468,9 +537,9 @@ function importView(): void {
       <h1>Restore your identity</h1>
       <p class="lead">Enter the 24-word recovery phrase you saved when you first set up Ekko.</p>
       <div class="card">
-        <label class="field" for="phrase">Recovery phrase</label>
-        <textarea id="phrase" name="recovery-phrase" placeholder="Enter your 24 words…" autocomplete="off" autocapitalize="off" spellcheck="false"></textarea>
-        <label class="field" for="p1">New password for this device</label>
+        <label class="field">Recovery phrase — your 24 words. Paste them all into the first box, or type one per box.</label>
+        ${wordEntry('phrase', 24)}
+        <label class="field" for="p1" style="margin-top:10px">New password for this device</label>
         ${pwField('p1', 'Password (min. 8 characters)', 'new-password')}
         ${pwField('p2', 'Repeat password', 'new-password')}
         <label class="ck" style="margin-top:10px"><input id="keep" type="checkbox" checked />
@@ -481,9 +550,10 @@ function importView(): void {
       <button id="back" class="btn ghost block">Back</button>
     </main>`;
   wireEyes();
+  wireWords('phrase', () => $<HTMLInputElement>('#p1').focus());
   $('#back').addEventListener('click', welcome);
   const go = async () => {
-    const phrase = $<HTMLTextAreaElement>('#phrase').value.trim().toLowerCase().replace(/\s+/g, ' ');
+    const phrase = collectWords('phrase');
     const p1 = $<HTMLInputElement>('#p1').value;
     const p2 = $<HTMLInputElement>('#p2').value;
     const msg = $('#msg');
@@ -506,7 +576,6 @@ function importView(): void {
   $('#go').addEventListener('click', go);
   onEnter('#p1', () => void go());
   onEnter('#p2', () => void go());
-  $<HTMLTextAreaElement>('#phrase').focus();
 }
 
 function alreadySetUp(): void {
