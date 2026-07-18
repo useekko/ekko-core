@@ -753,10 +753,13 @@ async function identityTab(main: HTMLElement): Promise<void> {
           ? `<p class="muted">Signed in as <strong>${esc(acct.email ?? 'your Ekko account')}</strong>.</p>
              ${
                acct.hasBackup
-                 ? `<p class="muted" style="margin-top:6px">An encrypted copy of this identity is on your account. Sign in on your phone and give it the backup passphrase to get the same keys and the same contacts there.</p>
-                    <button id="acctBackup" class="btn block" style="margin-top:8px">Back up again</button>
-                    <button id="acctDrop" class="btn ghost block" style="margin-top:6px">Remove the copy from Ekko</button>`
-                 : `<p class="muted" style="margin-top:6px">Ekko can keep an encrypted copy of your identity and contacts, so your phone is a sign-in instead of typing 24 words. It is locked with a passphrase that never leaves this device: we store the locked copy and cannot open it.</p>
+                 ? acct.autoBackup
+                   ? `<p class="muted" style="margin-top:6px">An encrypted copy of this identity is on your account, and this browser keeps it current by itself — every change to your keys, contacts or secure channels re-uploads it. Sign in on your phone and give it the backup passphrase to get everything there.</p>
+                      <button id="acctDrop" class="btn ghost block" style="margin-top:8px">Remove the copy from Ekko</button>`
+                   : `<p class="muted" style="margin-top:6px">An encrypted copy of this identity is on your account, made before backups became automatic. Back up again to mint a fresh passphrase — the old one stops working — and from then on this browser keeps the copy current by itself.</p>
+                      <button id="acctBackup" class="btn block" style="margin-top:8px">Back up again</button>
+                      <button id="acctDrop" class="btn ghost block" style="margin-top:6px">Remove the copy from Ekko</button>`
+                 : `<p class="muted" style="margin-top:6px">Ekko can keep an encrypted copy of your identity and contacts, so your phone is a sign-in instead of typing 24 words. It is locked with a passphrase that never leaves this device: we store the locked copy and cannot open it. After the first backup this browser keeps the copy current by itself.</p>
                     <button id="acctBackup" class="btn primary block" style="margin-top:8px">Back up my keys</button>`
              }
              <div id="acctPass" class="hidden" style="margin-top:10px">

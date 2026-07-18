@@ -27,7 +27,7 @@ import {
 import { classify, decodeBody, formatInvite, formatHandshake, formatMessage } from './core/wire.js';
 import type { Req, Res, VaultState, ContactView } from './core/rpc.js';
 import { b64uEncode, b64uDecode } from './core/b64.js';
-import { sealBackup, openBackup } from './core/backup.js';
+import { openBackup, newBackupKey, backupKeyOf, sealBackupWithKey, type BackupPayload } from './core/backup.js';
 import {
   sendCode, verifyCode, validSession, emailOf, userIdOf,
   fetchBackup, uploadBackup, deleteBackup, SUPABASE_URL,
@@ -192,7 +192,72 @@ async function getVault(): Promise<VaultData | null> {
     return null; // master stale (e.g. vault replaced) — treat as locked
   }
   await migrateAndSync(vault);
+  // Catch-up: a service-worker death between a change and its auto-upload leaves the dirty
+  // flag set; the first rehydrate finishes the job. Once per worker life.
+  if (!dirtyChecked) {
+    dirtyChecked = true;
+    void ext.storage.local.get(BACKUP_DIRTY).then((r) => {
+      if (r[BACKUP_DIRTY]) void autoBackup();
+    });
+  }
   return vault;
+}
+
+// --- automatic backup ---
+// One passphrase per account: the derived key lives in the vault (see VaultData.backup), so
+// every vault change can re-seal a CURRENT blob without re-asking for the passphrase. The
+// dirty flag rides the same storage write as the vault blob, so a worker killed mid-flight
+// picks the upload back up on the next rehydrate.
+const BACKUP_DIRTY = 'rsn.backupDirty';
+let dirtyChecked = false;
+let backingUp = false;
+let backupQueued = false;
+
+function backupPayloadOf(v: VaultData): Omit<BackupPayload, 'v'> {
+  return {
+    mnemonic: v.mnemonic!,
+    contacts: v.contacts.map((c) => ({
+      bundle: b64uEncode(c.bundle),
+      label: c.label,
+      verified: c.verified,
+      addedAt: c.addedAt,
+    })),
+    // Sessions are the only capability that reads past messages — without them a restore
+    // orphans history (handshakeWire stays behind: pending-setup replay state, re-staged
+    // by the next sync where still needed).
+    sessions: v.sessions.map((s) => ({
+      id: b64uEncode(s.id),
+      key0to1: b64uEncode(s.key0to1),
+      key1to0: b64uEncode(s.key1to0),
+      myParty: s.myParty,
+      peerFingerprint: b64uEncode(s.peerFingerprint),
+      threadId: s.threadId,
+      acct: s.acct,
+    })),
+  };
+}
+
+async function autoBackup(): Promise<void> {
+  if (backingUp) {
+    backupQueued = true; // a change landed mid-upload; re-seal once this one finishes
+    return;
+  }
+  const v = vault;
+  if (!v?.backup || !v.mnemonic) return;
+  const s = await getAccountSession();
+  if (!s) return;
+  backingUp = true;
+  try {
+    do {
+      backupQueued = false;
+      await uploadBackup(s, sealBackupWithKey(backupPayloadOf(v), v.backup.key, v.backup.salt, v.backup.iter));
+    } while (backupQueued);
+    await ext.storage.local.remove(BACKUP_DIRTY);
+  } catch {
+    /* offline: the dirty flag stays set; the next change or rehydrate retries */
+  } finally {
+    backingUp = false;
+  }
 }
 
 // Every path where a vault becomes readable (unlock, lazy rehydrate, import) runs the
@@ -253,7 +318,11 @@ async function persist(): Promise<void> {
   await ext.storage.local.set({
     [LOCAL_BLOB]: encryptVault(vault, master, currentSalt),
     [LINKED_CACHE]: linkedCacheOf(vault),
+    // The dirty flag rides the same write, so no vault change can outlive a worker death
+    // without leaving a re-upload marker behind.
+    ...(vault.backup ? { [BACKUP_DIRTY]: true } : {}),
   });
+  if (vault.backup) void autoBackup(); // fire-and-forget: the RPC must not wait on the network
 }
 
 // Shared validation for every "add a contact from an invite" path: the popup's
@@ -1323,6 +1392,9 @@ async function handle(req: Req, sender?: chrome.runtime.MessageSender): Promise<
           email: emailOf(s) ?? undefined,
           handle: profile?.handle,
           hasBackup: blob !== null,
+          // Meaningful only while unlocked (the key lives inside the vault); the popup's
+          // identity tab is only reachable unlocked, so that is the consumer.
+          autoBackup: !!(await getVault())?.backup,
         };
       } catch {
         // Offline, or the session died. Say we are signed in but could not check — never claim
@@ -1470,31 +1542,12 @@ async function handle(req: Req, sender?: chrome.runtime.MessageSender): Promise<
       const s = await getAccountSession();
       if (!s) return { error: 'not-signed-in' };
       try {
-        const blob = sealBackup(
-          {
-            mnemonic: v.mnemonic,
-            contacts: v.contacts.map((c) => ({
-              bundle: b64uEncode(c.bundle),
-              label: c.label,
-              verified: c.verified,
-              addedAt: c.addedAt,
-            })),
-            // Sessions are the only capability that reads past messages — without them a
-            // restore orphans history (handshakeWire stays behind: pending-setup replay
-            // state, re-staged by the next sync where still needed).
-            sessions: v.sessions.map((s) => ({
-              id: b64uEncode(s.id),
-              key0to1: b64uEncode(s.key0to1),
-              key1to0: b64uEncode(s.key1to0),
-              myParty: s.myParty,
-              peerFingerprint: b64uEncode(s.peerFingerprint),
-              threadId: s.threadId,
-              acct: s.acct,
-            })),
-          },
-          req.backupPassphrase,
-        );
-        await uploadBackup(s, blob);
+        const bk = newBackupKey(req.backupPassphrase);
+        await uploadBackup(s, sealBackupWithKey(backupPayloadOf(v), bk.key, bk.salt, bk.iter));
+        // From here on backups are automatic: the derived KEY (never the passphrase) lives
+        // in the vault, and every persist re-seals a current blob under it.
+        v.backup = bk;
+        await persist();
         return { ok: true, hasBackup: true };
       } catch (e) {
         return { error: (e as Error).message };
@@ -1557,7 +1610,16 @@ async function handle(req: Req, sender?: chrome.runtime.MessageSender): Promise<
             return [];
           }
         });
-        vault = { identity, mnemonic, contacts: restored, sessions, threadBindings: {} };
+        // The restore is the moment this device learns the passphrase — turn it into the
+        // stored key, so this device keeps the account's backup current from now on too.
+        vault = {
+          identity,
+          mnemonic,
+          contacts: restored,
+          sessions,
+          threadBindings: {},
+          backup: { key: backupKeyOf(blob, req.backupPassphrase), salt: blob.salt, iter: blob.iter },
+        };
         // The backup blob carries keys and contacts, not the @handle string — but this account
         // owns one server-side (the "You are @you" onboarding reads it from the same profile).
         // Adopt it so the popup's Identity tab shows @you instead of an empty claim prompt right
@@ -1583,6 +1645,14 @@ async function handle(req: Req, sender?: chrome.runtime.MessageSender): Promise<
       if (!s) return { error: 'not-signed-in' };
       try {
         await deleteBackup(s);
+        // Forget the auto-backup key too, or the next vault change would quietly resurrect
+        // the copy the user just deleted.
+        const v = await getVault();
+        if (v?.backup) {
+          delete v.backup;
+          await persist();
+        }
+        await ext.storage.local.remove(BACKUP_DIRTY);
         return { ok: true, hasBackup: false };
       } catch (e) {
         return { error: (e as Error).message };

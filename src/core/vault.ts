@@ -39,6 +39,10 @@ export interface VaultData {
   contacts: Contact[];
   sessions: Session[];
   threadBindings: Record<string, string>; // threadId -> peer fingerprint (hex)
+  // Automatic backup: the DERIVED key (never the passphrase) plus the salt/iter that
+  // reproduce it, so the background can re-seal a current blob on every vault change.
+  // Lives here because the vault is the encrypted store — same exposure as the mnemonic.
+  backup?: { key: Uint8Array; salt: string; iter: number };
 }
 
 export interface VaultBlob {
@@ -84,6 +88,7 @@ function serialize(v: VaultData): string {
       handshakeWire: s.handshakeWire && b64uEncode(s.handshakeWire),
     })),
     threadBindings: v.threadBindings,
+    backup: v.backup && { key: b64uEncode(v.backup.key), salt: v.backup.salt, iter: v.backup.iter },
   });
 }
 
@@ -129,6 +134,10 @@ function deserialize(json: string): VaultData {
     contacts,
     sessions,
     threadBindings: o.threadBindings ?? {},
+    backup:
+      o.backup && typeof o.backup.key === 'string' && typeof o.backup.salt === 'string' && Number.isInteger(o.backup.iter)
+        ? { key: b64uDecode(o.backup.key), salt: o.backup.salt, iter: o.backup.iter }
+        : undefined,
   };
 }
 

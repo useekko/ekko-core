@@ -117,25 +117,42 @@ function header(v: number, kdf: string, iter: number): Uint8Array {
  * including them adds no new exposure class.
  */
 export function sealBackup(payload: Omit<BackupPayload, 'v'>, passphrase: string): BackupBlob {
+  const bk = newBackupKey(passphrase);
+  return sealBackupWithKey(payload, bk.key, bk.salt, bk.iter);
+}
+
+/** One account = one passphrase = one derived key. The KEY (never the passphrase) may live
+ *  inside the device's encrypted vault so the background can re-seal a CURRENT blob whenever
+ *  the vault changes — automatic backup without ever storing or re-asking the passphrase.
+ *  Reusing the salt across re-seals is standard: its job is per-passphrase uniqueness, and
+ *  every seal still gets a fresh random nonce. */
+export function newBackupKey(passphrase: string): { key: Uint8Array; salt: string; iter: number } {
   if (passphrase.length < MIN_PASSPHRASE_LENGTH) {
     throw new BackupError(`Passphrase must be at least ${MIN_PASSPHRASE_LENGTH} characters.`);
   }
   const salt = randomBytes(16);
+  return { key: deriveKey(passphrase, salt, PBKDF2_ITERATIONS), salt: b64uEncode(salt), iter: PBKDF2_ITERATIONS };
+}
+
+/** Re-derive the key that seals/opens an existing blob — how a restore turns the passphrase
+ *  it was just given into the stored key that keeps THIS device's backups current too. */
+export function backupKeyOf(blob: BackupBlob, passphrase: string): Uint8Array {
+  return deriveKey(passphrase, b64uDecode(blob.salt), blob.iter);
+}
+
+export function sealBackupWithKey(
+  payload: Omit<BackupPayload, 'v'>,
+  key: Uint8Array,
+  salt: string,
+  iter: number,
+): BackupBlob {
   const nonce = randomBytes(24);
-  const key = deriveKey(passphrase, salt, PBKDF2_ITERATIONS);
   const body: BackupPayload = { v: BACKUP_VERSION, ...payload };
-  const aad = header(BACKUP_VERSION, KDF, PBKDF2_ITERATIONS);
+  const aad = header(BACKUP_VERSION, KDF, iter);
   const ct = xchacha20poly1305(key, nonce, aad).encrypt(
     new TextEncoder().encode(JSON.stringify(body)),
   );
-  return {
-    v: BACKUP_VERSION,
-    kdf: KDF,
-    iter: PBKDF2_ITERATIONS,
-    salt: b64uEncode(salt),
-    nonce: b64uEncode(nonce),
-    ct: b64uEncode(ct),
-  };
+  return { v: BACKUP_VERSION, kdf: KDF, iter, salt, nonce: b64uEncode(nonce), ct: b64uEncode(ct) };
 }
 
 /** Throws BackupError on a wrong passphrase, a tampered blob, or a format we do not know. */

@@ -146,6 +146,9 @@ export interface Res {
   email?: string; // the account's email, for the popup to show who is signed in
   handle?: string; // the account @handle, if one is claimed (acctStatus / acctClaim)
   hasBackup?: boolean; // an encrypted backup exists on the account
+  // This device holds the derived backup key and re-uploads automatically on vault changes.
+  // Only meaningful while unlocked (the key lives inside the vault).
+  autoBackup?: boolean;
   backupAt?: string; // when it was last written (display only)
   restoredContacts?: number; // how many contacts came back from a restore
   skippedSelf?: number; // accepted connections skipped because they share THIS identity's key (you)

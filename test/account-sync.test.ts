@@ -1,8 +1,8 @@
-import { describe, it, expect, beforeAll } from 'vitest';
+import { describe, it, expect, beforeAll, vi } from 'vitest';
 import { sealBackup, openBackup, type BackupBlob } from '../src/core/backup.js';
 import { deviceIdentity, generateMnemonic } from '../src/core/recovery.js';
 import { fingerprintHex, startHandshake, acceptHandshake, sealMessage } from '../src/core/crypto.js';
-import { formatMessage, classify } from '../src/core/wire.js';
+import { formatMessage, formatInvite, classify } from '../src/core/wire.js';
 import { scopedThreadId } from '../src/core/thread.js';
 import { b64uEncode } from '../src/core/b64.js';
 import type { Req, Res } from '../src/core/rpc.js';
@@ -249,6 +249,18 @@ describe('and can back up again, from here', () => {
   it('refuses to back up behind a passphrase too short to be worth it', async () => {
     const bad = await call({ type: 'acctBackup', backupPassphrase: 'short' });
     expect(bad.error).toBeTruthy();
+  });
+
+  it('keeps the copy current by itself once a backup exists — no button, no passphrase', async () => {
+    const cleo = deviceIdentity(generateMnemonic(), 0);
+    const added = await call({ type: 'addContact', invite: formatInvite(cleo.bundle), label: 'Cleo' });
+    expect(added.contact).toBeTruthy();
+    // No acctBackup call: the vault change alone re-seals under the stored key and uploads.
+    await vi.waitFor(() => {
+      const opened = openBackup(serverBlob!, 'a different backup passphrase');
+      expect(opened.contacts.map((c) => c.label)).toContain('Cleo');
+    });
+    expect((await call({ type: 'acctStatus' })).autoBackup).toBe(true);
   });
 
   it('can delete the copy from the account', async () => {
