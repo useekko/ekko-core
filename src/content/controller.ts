@@ -52,6 +52,7 @@ export class Controller {
   private plaintexts = new Map<string, string>();
   private threadId: string | null = null;
   private scheduled = false;
+  private coverScheduled = false;
   private stopped = false;
   private observer: MutationObserver | null = null;
   private scanning = false;
@@ -182,14 +183,21 @@ export class Controller {
     try {
       this.threadId = this.activeThreadId();
       if (this.threadId) void this.refreshLinked(this.threadId);
-      this.observer = new MutationObserver(() => this.requestScan());
+      this.observer = new MutationObserver(() => {
+        this.requestCover(); // pre-paint: cover what the platform just (re)mounted
+        this.requestScan();
+      });
       this.observer.observe(document.body, {
         childList: true,
         subtree: true,
         characterData: true,
       });
-      document.addEventListener('visibilitychange', () => this.requestScan());
+      document.addEventListener('visibilitychange', () => {
+        this.requestCover();
+        this.requestScan();
+      });
       this.a.onSend(this.sendHook());
+      this.requestCover();
       this.requestScan();
     } catch {
       // Never let a failed bootstrap break the host page.
@@ -211,6 +219,43 @@ export class Controller {
       this.scheduled = false;
       void this.scan();
     }, 150);
+  }
+
+  // Pre-paint cover. MutationObserver callbacks (and the microtasks they queue) run BEFORE
+  // the browser paints what the platform just (re)mounted — but the full scan above is
+  // debounced 150ms, so without this pass every React re-mount painted raw ciphertext for
+  // a few frames ("decrypts, encrypts, decrypts"). This pass is RENDER-ONLY and synchronous:
+  // cached plaintext lands final (same one-hop semantics as the scan's known-path), any
+  // other token gets the generic cover; ingest, chunks and all RPC stay in the scan.
+  requestCover(): void {
+    if (this.stopped || this.coverScheduled) return;
+    this.coverScheduled = true;
+    queueMicrotask(() => {
+      this.coverScheduled = false;
+      if (!this.enabled || (typeof document !== 'undefined' && document.hidden)) return; // hidden tabs don't paint; the scan catches up
+      try {
+        const tid = this.activeThreadId();
+        for (const el of this.a.findBubbles()) {
+          if (el.dataset.rsn !== undefined) continue; // already carries its real face
+          const c = classifyStandalone(this.a.bubbleText(el));
+          // Invites must stay raw — on conflicting offers the token itself is the escape hatch.
+          if (!c || c.kind === 'invite') continue;
+          if (c.kind === 'message') {
+            const known = this.plaintexts.get(c.raw);
+            if (known !== undefined) {
+              el.dataset.rsn = 'done';
+              this.a.replaceBubbleText(el, known, 'decrypted');
+              continue;
+            }
+          }
+          // rsn stays unset: the scan's first-sighting cover and ingest still own this bubble.
+          const hush = c.kind === 'handshake' && tid !== null && this.secureShown.has(tid);
+          this.a.replaceBubbleText(el, hush ? '' : 'Encrypted message', hush ? 'info' : 'pending');
+        }
+      } catch {
+        /* never let a render fast-path break the page — the scan still covers everything */
+      }
+    });
   }
 
   sendHook(): SendHook {

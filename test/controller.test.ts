@@ -228,6 +228,43 @@ describe('controller end-to-end', () => {
     expect(bobIngests).toBe(1); // decrypted once; the re-mount hit the plaintext cache
   });
 
+  it('requestCover renders pre-paint: cached plaintext lands final, unknown tokens get the cover, no RPC', async () => {
+    const alice = generateIdentity();
+    const bob = generateIdentity();
+    const aAdapter = new FakeAdapter(10000);
+    let rpcs = 0;
+    const real = makeParty(alice, [bob]);
+    const aBridge: Bridge = async (req: Req) => {
+      if (req.type === 'ingest') rpcs++;
+      return real(req);
+    };
+    await bind(aBridge, bytesToHex(bob.fingerprint));
+    const aCtrl = new Controller(aAdapter, aBridge);
+
+    await aCtrl.sendHook().handle('pre-paint');
+    // The platform mounts the echoed bubbles; ONLY the cover pass runs (the 150ms scan
+    // hasn't fired) — the sent message must render final with zero round-trips.
+    deliver(aAdapter, aAdapter);
+    const rpcsBefore = rpcs;
+    aCtrl.requestCover();
+    await new Promise((r) => setTimeout(r, 0)); // flush the microtask
+    const sent = aAdapter.bubbles.find((b) => b._text.startsWith('EKK1M:'))!;
+    expect(sent._rendered).toBe('pre-paint');
+    expect(sent._status).toBe('decrypted');
+    expect(rpcs).toBe(rpcsBefore); // render-only: ingest stays with the debounced scan
+
+    // A token we cannot resolve yet is covered generically — never painted as raw base64 —
+    // and the bubble stays unclaimed so the scan's ingest still owns it.
+    const stranger = startHandshake(generateIdentity(), bob.bundle).session;
+    aAdapter.add(formatMessage(sealMessage(stranger, 'not for us')));
+    aCtrl.requestCover();
+    await new Promise((r) => setTimeout(r, 0));
+    const covered = aAdapter.bubbles.at(-1)!;
+    expect(covered._rendered).toBe('Encrypted message');
+    expect(covered._status).toBe('pending');
+    expect(covered.dataset.rsn).toBeUndefined();
+  });
+
   it('holds a message that arrives before its handshake, then decrypts on retry', async () => {
     const alice = generateIdentity();
     const bob = generateIdentity();
