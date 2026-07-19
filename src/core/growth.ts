@@ -1,6 +1,6 @@
 // The one message a user sends to bring a friend onto Ekko — shared by onboarding's done
 // step, the popup's empty-contacts state, and the in-page "invite peer" glyph so the pitch
-// never forks. It now carries an invite LINK (useekko.app/i#…): a claimed @handle makes a
+// never forks. It now carries an invite LINK (useekko.app/i/#…): a claimed @handle makes a
 // short link the friend opens on any device; a ghost identity carries its whole public key
 // bundle in the link's fragment (~1,650 chars) so the friend lands ready to add them. The key
 // rides the URL FRAGMENT, which the browser never sends to any server — it stays on the two
@@ -8,9 +8,11 @@
 // ~1,000), a too-long link degrades to the plain pitch and invites are traded the old way.
 const SITE = 'https://useekko.app';
 
+// Minted as /i/# (not /i#): nginx 301s /i → /i/, and the one extra hop would happen inside
+// the flakiest browsers this link ever meets — Instagram and Messenger in-app webviews.
 export function inviteLink(username?: string, token?: string): string {
-  if (username) return `${SITE}/i#@${username}`;
-  if (token) return `${SITE}/i#${token}`;
+  if (username) return `${SITE}/i/#@${username}`;
+  if (token) return `${SITE}/i/#${token}`;
   return SITE;
 }
 
