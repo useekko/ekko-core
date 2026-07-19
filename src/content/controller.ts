@@ -12,7 +12,7 @@
 //   - bubbles that fail for a recoverable reason are marked `pending` and retried;
 //   - scans are debounced and non-overlapping, so DOM churn can't cause a scan storm;
 //   - on any encryption failure in a linked chat the native send stays suppressed.
-import { classify, classifyStandalone, decodeBody, isWireBlob, PREFIX } from '../core/wire.js';
+import { classify, classifyStandalone, decodeBody, isWireBlob, PREFIX, IG_MAX_MESSAGE_LEN } from '../core/wire.js';
 import { splitMessage, randomChunkId, parseChunk, Reassembler } from '../core/chunk.js';
 import { scopedThreadId } from '../core/thread.js';
 import { inviteMessage } from '../core/growth.js';
@@ -601,7 +601,12 @@ export class Controller {
   // locked vault still yields the generic pitch: growth must not require an unlock first.
   private async copyInvitePitch(): Promise<void> {
     const who = await this.bridge({ type: 'invite' });
-    const text = inviteMessage(who.username);
+    // Gate the link on Instagram's cap (the tightest composer we target): a claimed @handle
+    // makes a short link that always fits; a ghost's ~1,650-char key link doesn't, and degrades
+    // to the plain pitch. The tightest limit keeps the copied text paste-safe on every app.
+    // ponytail: one universal limit — go per-adapter only if WhatsApp/Telegram ghosts should
+    // also get the long link.
+    const text = inviteMessage(who.username, who.invite, IG_MAX_MESSAGE_LEN);
     try {
       await navigator.clipboard.writeText(text);
     } catch {

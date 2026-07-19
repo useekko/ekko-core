@@ -69,6 +69,10 @@ const TAGLINE_KEY = 'rsn.tagline'; // append the Ekko tag to sent ciphertext (de
 // Plain-storage mirror of linked threads, keyed by a digest. It lets a LOCKED vault fail
 // closed without storing raw provider conversation IDs (which can include phone numbers).
 const LINKED_CACHE = 'rsn.linked';
+// A web invite link (useekko.app/i#…) staged by adoptInvite for the popup/onboarding to
+// surface behind an explicit tap. Plain storage (an invite is public); one at a time, newest
+// wins. Never a contact until the user accepts it.
+const PENDING_INVITE = 'rsn.pendingInvite';
 
 // The server never receives private keys — only public bundles and username claims.
 const DIRECTORY_URL = 'https://useekko.app';
@@ -986,6 +990,69 @@ async function handle(req: Req, sender?: chrome.runtime.MessageSender): Promise<
       return { ok: true, contact: contactView(contact, v.identity.fingerprint) };
     }
 
+    // The web invite link (useekko.app/i#…), handed over by the /i page's content script
+    // (src/content/invite.ts). One gate: the sender's origin. The payload is PUBLIC and this
+    // adds NOTHING — it only stages the link so the popup/onboarding can offer it behind an
+    // explicit tap (a link must never be the same act as trusting a key). No await-flag like
+    // acctAdoptSession: that guards a pushed credential; this is a public key the user clicked.
+    case 'adoptInvite': {
+      const origin = sender?.origin ?? (sender?.url ? new URL(sender.url).origin : null);
+      if (origin !== new URL(DIRECTORY_URL).origin) return { error: 'bad-origin' };
+      const raw = String(req.invite ?? '').trim();
+      const handle = raw.replace(/^@/, '').toLowerCase();
+      let pending: { kind: 'handle' | 'token'; raw: string };
+      if (USERNAME_RE.test(handle)) pending = { kind: 'handle', raw: handle };
+      else if (classify(raw)?.kind === 'invite') pending = { kind: 'token', raw };
+      else return { error: 'bad-invite' };
+      await ext.storage.local.set({ [PENDING_INVITE]: pending });
+      try {
+        await ext.action.setBadgeText({ text: '1' });
+        await ext.action.setBadgeBackgroundColor({ color: '#ff5f52' });
+      } catch {
+        /* the badge is a nudge, not load-bearing — never fail the stage over it */
+      }
+      return { ok: true };
+    }
+
+    // Peek the staged link WITHOUT consuming it, so reopening the popup keeps offering it and
+    // the onboarding done-step can mention it while the popup still owns the accept.
+    case 'pendingInvite': {
+      const rec = await ext.storage.local.get(PENDING_INVITE);
+      return { ok: true, pendingInvite: (rec[PENDING_INVITE] as { kind: 'handle' | 'token'; raw: string } | undefined) ?? null };
+    }
+
+    // Drop the staged link and its badge — once the user has accepted or dismissed it.
+    case 'clearPendingInvite': {
+      await ext.storage.local.remove(PENDING_INVITE);
+      try {
+        await ext.action.setBadgeText({ text: '' });
+      } catch {
+        /* non-fatal */
+      }
+      return { ok: true };
+    }
+
+    // The token analog of dirLookup: parse an invite token and report the key's security code
+    // WITHOUT adding it. The popup shows the code before the user taps Accept — the same
+    // look-then-trust split @handles get through dirLookup.
+    case 'previewInvite': {
+      const v = await getVault();
+      if (!v) return { error: 'locked' };
+      const parsed = parseInviteOrError(v, req.invite);
+      if ('error' in parsed) return parsed;
+      const fp = fpOf(parsed.bundle);
+      return {
+        ok: true,
+        contact: {
+          fingerprint: bytesToHex(fp),
+          label: '',
+          verified: false,
+          safetyNumber: safetyNumber(v.identity.fingerprint, fp),
+          fingerprintHex: fingerprintHex(fp),
+        },
+      };
+    }
+
     case 'acceptInvite': {
       // This is the in-page glyph's explicit click path. Keep it tab-only so a popup
       // cannot accidentally turn pasted text into a live chat binding.
@@ -1868,7 +1935,23 @@ ext.runtime.onMessage.addListener((req: Req, sender, sendResponse) => {
 // First install: open the full-tab onboarding experience (create/import, passphrase, back up
 // your recovery phrase, claim a handle) rather than leaving the user to find the tiny popup.
 ext.runtime.onInstalled?.addListener((details) => {
-  if (details.reason === 'install') void ext.tabs.create({ url: ext.runtime.getURL('onboarding.html') });
+  if (details.reason !== 'install') return;
+  void ext.tabs.create({ url: ext.runtime.getURL('onboarding.html') });
+  // The invite page the user clicked may already be open in a tab — but our content script,
+  // freshly installed, never ran in it. Inject it once so that tab hands its own fragment over
+  // (src/content/invite.ts), bridging the gap between "clicked a link" and "installed Ekko".
+  // Legal with no new permission: scripting + the useekko.app host permission already exist.
+  void (async () => {
+    const tabs = await ext.tabs.query({ url: `${DIRECTORY_URL}/i*` }).catch(() => [] as chrome.tabs.Tab[]);
+    for (const t of tabs) {
+      if (!t.id) continue;
+      try {
+        await ext.scripting.executeScript({ target: { tabId: t.id }, files: ['invite.js'] });
+      } catch {
+        /* a discarded or mid-navigation tab — nothing to pick up */
+      }
+    }
+  })();
 });
 
 // The seal-anywhere shortcut (⌘⇧E / Ctrl+Shift+E): open the in-page "Seal for a contact"

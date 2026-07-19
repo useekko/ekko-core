@@ -32,6 +32,15 @@ export type Req =
   // Explicit in-page action: validate an invite and bind this direct thread in one
   // background transaction. Inbound protocol data alone never reaches this request.
   | { type: 'acceptInvite'; threadId: string; invite: string; label?: string }
+  // The web invite link (useekko.app/i#…), handed in by the /i page's content script. The
+  // background checks the sender's origin and STAGES it — it never adds a contact here.
+  // pendingInvite peeks the staged one (for the popup/onboarding to surface) without consuming
+  // it; clearPendingInvite drops it once accepted or dismissed. previewInvite is the token
+  // analog of dirLookup: show the key's security code before any trust, and add nothing.
+  | { type: 'adoptInvite'; invite: string }
+  | { type: 'pendingInvite' }
+  | { type: 'clearPendingInvite' }
+  | { type: 'previewInvite'; invite: string }
   | { type: 'contacts' }
   | { type: 'verifyContact'; fingerprint: string }
   | { type: 'renameContact'; fingerprint: string; label: string }
@@ -126,6 +135,9 @@ export interface Res {
   fingerprintHex?: string;
   contacts?: ContactView[];
   contact?: ContactView | null;
+  // A web invite link staged by adoptInvite, awaiting the user's explicit accept. Null when
+  // none is staged. It is never auto-added — the popup/onboarding surface it behind a tap.
+  pendingInvite?: { kind: 'handle' | 'token'; raw: string } | null;
   tokens?: string[]; // wire tokens for the content script to inject in order
   plaintext?: string; // decrypted message
   added?: ContactView; // newly TOFU-added sender (from a handshake)

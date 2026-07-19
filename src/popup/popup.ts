@@ -8,7 +8,7 @@ import { classify, TOKEN_RE, IG_MAX_MESSAGE_LEN } from '../core/wire.js';
 import { splitMessage, randomChunkId, Reassembler } from '../core/chunk.js';
 import { MANUAL_PLATFORMS, manualThreadId, type ManualPlatformId } from '../core/thread.js';
 import { decodeEkkoQr, IDENTITY_QR_OPTIONS, qrScanningSupported, type QrDecodeResult } from './qr.js';
-import { inviteMessage } from '../core/growth.js';
+import { inviteMessage, inviteLink } from '../core/growth.js';
 import { humanError } from '../core/errors.js';
 import { BRANDS, brandSvg, brandStyle } from './brands.js';
 
@@ -267,13 +267,19 @@ async function homeTab(main: HTMLElement): Promise<void> {
   const settings = await send({ type: 'getSettings' });
   const sites = settings.sites ?? {};
   const sessionOff = new Set(settings.sessionOff ?? []);
+  // A friend's invite link, picked up on useekko.app/i and staged by the background. Peek —
+  // never consume — so it keeps offering until the user accepts or dismisses it.
+  const pending = (await send({ type: 'pendingInvite' })).pendingInvite;
 
   main.innerHTML = `
+    <div id="pendingInvite"></div>
     <div class="card tight">
       <div style="padding:10px 0 4px"><h2 style="margin:0">Apps</h2></div>
       ${APPS.map((a) => appRow(a, sites[a.id] ?? true, sessionOff.has(a.id))).join('')}
     </div>
     <p class="hint center">Turn Ekko on or off per app. Chats with your connections encrypt automatically.</p>`;
+
+  if (pending) void renderPendingInvite(main, pending);
 
   for (const t of $$<HTMLInputElement>('[data-site]'))
     t.addEventListener('change', async () => {
@@ -370,7 +376,9 @@ async function contactsTab(main: HTMLElement, notice = ''): Promise<void> {
   const lastSyncAt = (await chrome.storage.local.get('rsn.lastSync'))['rsn.lastSync'] as number | undefined;
   // The empty state is the growth moment: a new user's friends don't have Ekko yet, and
   // "share your invite from the Identity tab" was homework. Hand them the message instead.
-  const myName = contacts.length === 0 ? (await send({ type: 'invite' })).username : undefined;
+  const myInvite = contacts.length === 0 ? await send({ type: 'invite' }) : undefined;
+  const myName = myInvite?.username;
+  const myToken = myInvite?.invite;
   if (contacts.length <= 4) contactQuery = ''; // no search box below 5 — don't strand a stale filter
   const q = contactQuery.toLowerCase();
   const shown = q ? contacts.filter((c) => c.label.toLowerCase().includes(q)) : contacts;
@@ -411,12 +419,12 @@ async function contactsTab(main: HTMLElement, notice = ''): Promise<void> {
         (contacts.length
           ? `<p class="muted">No matches.</p>`
           : `<p class="muted">No one here yet — Ekko works when a friend has it too. Send this to the person you text most:</p>
-             <div class="pitch" style="margin-top:8px">${esc(inviteMessage(myName))}</div>
+             <div class="pitch" style="margin-top:8px">${esc(inviteMessage(myName, myToken))}</div>
              <button id="invitePitch" class="btn icon block" style="margin-top:8px">${I.copy}<span>Copy message</span></button>`)
       }</div>
     </div>
     <p class="hint center" id="syncStamp">${lastSyncAt ? `Contacts synced ${syncAgo(lastSyncAt)}` : ''}</p>`;
-  $('#invitePitch')?.addEventListener('click', () => copyFeedback($('#invitePitch'), inviteMessage(myName)));
+  $('#invitePitch')?.addEventListener('click', () => copyFeedback($('#invitePitch'), inviteMessage(myName, myToken)));
 
   const add = $<HTMLButtonElement>('#add');
   add.addEventListener('click', async () => {
@@ -714,6 +722,66 @@ function previewCard(handle: string, c: ContactView): string {
   </div>`;
 }
 
+// A friend's invite link, picked up from useekko.app/i and STAGED by the background (never
+// auto-added). Show the same look-then-trust card the manual add uses — the security code
+// first, an explicit Add second — so a link is never itself the act of trusting a key.
+async function renderPendingInvite(
+  main: HTMLElement,
+  pending: { kind: 'handle' | 'token'; raw: string },
+): Promise<void> {
+  const slot = $<HTMLElement>('#pendingInvite', main);
+  if (!slot) return;
+  const drop = async () => {
+    await send({ type: 'clearPendingInvite' });
+    slot.innerHTML = '';
+  };
+
+  if (pending.kind === 'handle') {
+    const res = await send({ type: 'dirLookup', username: pending.raw });
+    if (res.error || !res.contact) return void drop(); // stale/unknown link — drop it, don't nag
+    slot.innerHTML = `<div class="card"><p class="kicker">Invite</p>${previewCard(pending.raw, res.contact)}
+      <button id="pendDismiss" type="button" class="btn ghost block" style="margin-top:6px">Not now</button></div>`;
+    $<HTMLButtonElement>('#previewAdd', slot).addEventListener('click', async () => {
+      const btn = $<HTMLButtonElement>('#previewAdd', slot);
+      setBusy(btn, true);
+      const done = await send({ type: 'dirAdd', username: pending.raw });
+      if (done.error) return void setBusy(btn, false);
+      await send({ type: 'clearPendingInvite' });
+      await showAddedContact(done.contact);
+    });
+    $('#pendDismiss', slot).addEventListener('click', () => void drop());
+    return;
+  }
+
+  const res = await send({ type: 'previewInvite', invite: pending.raw });
+  if (res.error || !res.contact) return void drop();
+  slot.innerHTML = `<div class="card">${invitePreviewCard(res.contact)}
+    <button id="pendDismiss" type="button" class="btn ghost block" style="margin-top:6px">Not now</button></div>`;
+  $<HTMLButtonElement>('#inviteAccept', slot).addEventListener('click', async () => {
+    const btn = $<HTMLButtonElement>('#inviteAccept', slot);
+    setBusy(btn, true);
+    const done = await send({ type: 'addContact', invite: pending.raw });
+    if (done.error) return void setBusy(btn, false);
+    await send({ type: 'clearPendingInvite' });
+    await showAddedContact(done.contact);
+  });
+  $('#pendDismiss', slot).addEventListener('click', () => void drop());
+}
+
+// A ghost invite carries a key but no name — so its card names the security code, not a
+// handle, and adds under a placeholder the user can rename. Same trust beat as previewCard.
+function invitePreviewCard(c: ContactView): string {
+  return `<div class="preview fade">
+    <div class="strong" style="font-size:15px">You've been invited to a private channel</div>
+    <p class="muted" style="margin:4px 0 0">Someone shared their Ekko key with you. It carries no name — add them, then label them yourself.</p>
+    <div class="divider"></div>
+    <h2>Their security code</h2>
+    <div class="mono safety">${esc(c.safetyNumber)}</div>
+    <p class="hint">This code identifies the key you are about to trust.</p>
+    <button id="inviteAccept" type="button" class="btn primary block icon" style="margin-top:10px">${I.plus}<span>Accept invite</span></button>
+  </div>`;
+}
+
 async function addContact(invite: string, name: string): Promise<void> {
   const msg = $('#addMsg');
   msg.className = 'msg err';
@@ -733,6 +801,10 @@ async function addContact(invite: string, name: string): Promise<void> {
 
 async function showAddedContact(contact: ContactView | null | undefined): Promise<void> {
   contactQuery = '';
+  // Accepting a picked-up invite from the Home tab lands here too — make the tab bar agree
+  // with the Contacts view it's about to render.
+  tab = 'contacts';
+  for (const x of $$('[data-tab]')) x.classList.toggle('active', x.dataset.tab === 'contacts');
   await contactsTab($('#main'), 'Contact added.');
   if (!contact) return;
   document.querySelector<HTMLElement>(`.listrow[data-fp="${contact.fingerprint}"]`)?.scrollIntoView({ block: 'nearest' });
@@ -764,9 +836,10 @@ async function identityTab(main: HTMLElement): Promise<void> {
       <p class="muted" style="margin:4px 0 0">Share this invite or QR code with a friend. Your private key never leaves this device.</p>
       <div id="qrbox" class="qrbox"></div>
       <div class="row" style="justify-content:center;flex-wrap:wrap;margin-top:8px">
+        <button id="copyInviteLink" class="btn primary icon">${I.link}<span>Copy invite link</span></button>
         <button id="copyInvite" class="btn icon">${I.copy}<span>Copy invite</span></button>
       </div>
-      <p class="hint">The full invite is long; QR is the easiest way to exchange it.</p>
+      <p class="hint">Send the link and a friend adds you in a tap. The raw invite and QR still work in person.</p>
     </div>
 
     <div class="card">
@@ -847,6 +920,9 @@ async function identityTab(main: HTMLElement): Promise<void> {
   $('#qrbox').innerHTML = `<img class="qr" src="${png}" width="290" height="290" alt="Your Ekko invite QR code" />`;
 
   $('#copyInvite').addEventListener('click', () => copyFeedback($('#copyInvite'), invite));
+  $('#copyInviteLink').addEventListener('click', () =>
+    copyFeedback($('#copyInviteLink'), inviteLink(username || undefined, invite)),
+  );
 
   // --- Ekko account: the encrypted backup that makes this browser and the phone interchangeable.
   // The passphrase is GENERATED and shown once. That is the security model, not a flourish: the

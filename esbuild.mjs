@@ -21,6 +21,10 @@ const contentCtx = await esbuild.context({
     // Not a messenger adapter either: the standalone "Seal for a contact" overlay, injected
     // on demand (activeTab) when the seal-anywhere shortcut fires on a page with no adapter.
     manual: 'src/content/manual.ts',
+    // Not a messenger adapter either: reads a web invite link's fragment on useekko.app/i and
+    // hands it to the background (src/content/invite.ts). Also injected on install into an
+    // already-open invite tab, to bridge the gap between clicking the link and installing.
+    invite: 'src/content/invite.ts',
   },
   bundle: true,
   format: 'iife',

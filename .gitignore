@@ -15,5 +15,9 @@ server/data/
 # mac-safari.sh / ios-safari-sync.mjs output (the generated Safari payload)
 ios/
 
+# The website lives in the ekko-lab repo. make-icons writes favicons here, and the /i landing
+# page is authored in ekko-lab/site — nothing under site/ is tracked in ekko-core.
+site/
+
 # Wrangler/dev leftovers that must never land
 .dev.vars

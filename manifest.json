@@ -69,6 +69,15 @@
         "account-bridge.js"
       ],
       "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://useekko.app/i*"
+      ],
+      "js": [
+        "invite.js"
+      ],
+      "run_at": "document_idle"
     }
   ],
   "permissions": [

@@ -503,9 +503,13 @@ function handleView(kicker = 'Step 3 of 3'): void {
   });
 }
 
-function doneView(username?: string): void {
+async function doneView(username?: string): Promise<void> {
   protectPhrase = false;
-  const pitch = inviteMessage(username);
+  const inv = await send({ type: 'invite' });
+  const pitch = inviteMessage(username, inv.invite);
+  // A friend's invite link may have been picked up during install (the background stages it);
+  // the popup owns the accept, so just point the new user at it.
+  const pending = (await send({ type: 'pendingInvite' })).pendingInvite;
   app.innerHTML = `
     <main class="fade">
       <div class="hero">
@@ -513,6 +517,12 @@ function doneView(username?: string): void {
         <h1>Ekko is ready</h1>
         <p>Your identity is set up on this device.${username ? ` People find you as <strong>@${esc(username)}</strong>.` : ''}</p>
       </div>
+      ${
+        pending
+          ? `<div class="card"><h2 style="margin-top:0">An invite is waiting</h2>
+        <p class="muted" style="margin:4px 0 0">Someone invited you to Ekko. Open the Ekko icon in your browser toolbar to see their key and add them.</p></div>`
+          : ''
+      }
       <div class="card">
         <h2 style="margin-top:0">Bring one friend</h2>
         <p class="muted" style="margin:4px 0 8px">Private messaging takes two. Send this to the person you text most:</p>
