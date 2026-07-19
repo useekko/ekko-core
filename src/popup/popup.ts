@@ -738,7 +738,10 @@ async function renderPendingInvite(
 
   if (pending.kind === 'handle') {
     const res = await send({ type: 'dirLookup', username: pending.raw });
-    if (res.error || !res.contact) return void drop(); // stale/unknown link — drop it, don't nag
+    // Drop only on a definitive no (unclaimed handle, junk handle, the user's own link). A
+    // transient failure — offline, directory down — keeps it staged for the next popup open.
+    if (res.error || !res.contact)
+      return void (['not-found', 'bad-username', 'thats-you'].includes(res.error ?? '') ? drop() : undefined);
     slot.innerHTML = `<div class="card"><p class="kicker">Invite</p>${previewCard(pending.raw, res.contact)}
       <button id="pendDismiss" type="button" class="btn ghost block" style="margin-top:6px">Not now</button></div>`;
     $<HTMLButtonElement>('#previewAdd', slot).addEventListener('click', async () => {
@@ -754,7 +757,9 @@ async function renderPendingInvite(
   }
 
   const res = await send({ type: 'previewInvite', invite: pending.raw });
-  if (res.error || !res.contact) return void drop();
+  // A token that fails to parse is dead forever; a locked vault is not — keep those staged.
+  if (res.error || !res.contact)
+    return void (['not-an-invite', 'bad-invite', 'thats-you'].includes(res.error ?? '') ? drop() : undefined);
   slot.innerHTML = `<div class="card">${invitePreviewCard(res.contact)}
     <button id="pendDismiss" type="button" class="btn ghost block" style="margin-top:6px">Not now</button></div>`;
   $<HTMLButtonElement>('#inviteAccept', slot).addEventListener('click', async () => {

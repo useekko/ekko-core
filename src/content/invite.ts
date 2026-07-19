@@ -15,6 +15,11 @@ const w = window as unknown as Record<string, unknown>;
 // that races the manifest-declared injection, the flag keeps the second one from double-sending.
 if (!w[FLAG]) {
   w[FLAG] = true;
-  const invite = decodeURIComponent(location.hash.slice(1)).trim();
+  let invite = '';
+  try {
+    invite = decodeURIComponent(location.hash.slice(1)).trim();
+  } catch {
+    // A %-sequence mangled by a messenger's linkifier is not an invite — stay silent.
+  }
   if (invite) void chrome.runtime.sendMessage({ type: 'adoptInvite', invite });
 }

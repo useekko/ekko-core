@@ -1067,7 +1067,7 @@ describe('controller end-to-end', () => {
     a.lastActions!.invitePeer();
     await sleep(0);
     // The pitch carries the @handle as an invite LINK and is never auto-sent — nothing hit the wire.
-    expect(copied[0]).toContain('https://useekko.app/i#@kirill');
+    expect(copied[0]).toContain('https://useekko.app/i/#@kirill');
     expect(a.wire).toEqual([]);
     expect(a.toasts.at(-1)).toMatch(/Invite copied/);
 
