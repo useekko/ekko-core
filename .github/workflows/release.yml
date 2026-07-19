@@ -12,6 +12,8 @@ jobs:
   release:
     if: github.repository == 'useekko/ekko-core'
     runs-on: ubuntu-latest
+    outputs:
+      skip: ${{ steps.existing.outputs.skip }}
     steps:
       - uses: actions/checkout@v4
       - name: Stop if the release already exists
@@ -36,3 +38,47 @@ jobs:
         run: |
           gh release create "$GITHUB_REF_NAME" --draft --generate-notes \
             --title "Ekko $GITHUB_REF_NAME" artifacts/*.zip
+
+  # Safari ships as a signed, notarized macOS app — it can't be a zip like the others, so it needs
+  # a Mac runner and Apple secrets. Runs after `release` has staged the draft, then attaches the
+  # .dmg. Non-blocking: if the Apple secrets aren't set yet, it warns and skips instead of failing
+  # the whole release. See scripts/mac-safari-release.sh for the six secrets it wants.
+  build-safari:
+    needs: release
+    if: needs.release.outputs.skip != 'true'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Skip if signing secrets aren't configured
+        id: secrets
+        env:
+          CERT: ${{ secrets.MAC_CERT_P12_BASE64 }}
+        run: |
+          if [ -z "$CERT" ]; then
+            echo "have=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::MAC_CERT_P12_BASE64 not set — skipping the Safari .dmg. Add the Apple signing secrets to enable it."
+          else
+            echo "have=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/setup-node@v4
+        if: steps.secrets.outputs.have == 'true'
+        with:
+          node-version: 26
+          cache: npm
+      - if: steps.secrets.outputs.have == 'true'
+        run: npm ci
+      - name: Build, sign, notarize the Safari .dmg
+        if: steps.secrets.outputs.have == 'true'
+        env:
+          MAC_CERT_P12_BASE64: ${{ secrets.MAC_CERT_P12_BASE64 }}
+          MAC_CERT_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          AC_API_KEY_ID: ${{ secrets.AC_API_KEY_ID }}
+          AC_API_ISSUER_ID: ${{ secrets.AC_API_ISSUER_ID }}
+          AC_API_KEY_P8_BASE64: ${{ secrets.AC_API_KEY_P8_BASE64 }}
+        run: scripts/mac-safari-release.sh
+      - name: Attach the .dmg to the draft release
+        if: steps.secrets.outputs.have == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" artifacts/*.dmg --clobber
