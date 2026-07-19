@@ -314,6 +314,14 @@ describe('the account handle', () => {
     expect((await call({ type: 'invite' })).handles).toEqual({ instagram: 'kv.gram' });
   });
 
+  it('stamps the last COMPLETE sync, so the popup can say how fresh contacts are', async () => {
+    const before = Date.now();
+    expect((await call({ type: 'acctSync' })).ok).toBe(true);
+    const chrome = (globalThis as unknown as { chrome: { storage: { local: { get(k: string): Promise<Record<string, unknown>> } } } }).chrome;
+    const at = (await chrome.storage.local.get('rsn.lastSync'))['rsn.lastSync'] as number;
+    expect(at).toBeGreaterThanOrEqual(before);
+  });
+
   it('is gated on the session — signed out, there is no claim', async () => {
     await call({ type: 'acctSignOut' });
     const res = await call({ type: 'acctClaim', handle: 'ghost' });

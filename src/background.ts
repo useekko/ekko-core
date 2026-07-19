@@ -53,6 +53,7 @@ const SESSION_MASTER = 'rsn.master';
 const KEEP_UNLOCKED_PREF = 'rsn.keepUnlocked';
 const LOCAL_MASTER = 'rsn.masterLocal';
 const ACCOUNT_SESSION = 'rsn.account'; // Ekko account JWT pair; see getAccountSession
+const LAST_SYNC = 'rsn.lastSync'; // epoch ms of the last COMPLETE account sync (popup freshness stamp)
 // Set while a Google sign-in we started is in flight, so the account page can hand its session back
 // exactly once. Memory-only (storage.session) on purpose: it must not survive a browser restart.
 const ACCOUNT_AWAIT = 'rsn.account.await';
@@ -773,6 +774,9 @@ async function runAccountSync(v: VaultData, s: AccountSession): Promise<Res> {
     }
   }
   if (adopted || changed) await persist();
+  // Stamp only a FULL pass: the popup shows "contacts synced X ago" from this, and a
+  // half-finished run must not claim freshness a flaky connection didn't deliver.
+  await ext.storage.local.set({ [LAST_SYNC]: Date.now() });
   return { ok: true, restoredContacts: adopted, skippedSelf, skippedNoKey, adoptedSessions, requests };
 }
 

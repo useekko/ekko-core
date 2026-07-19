@@ -352,8 +352,22 @@ function renderRequests(main: HTMLElement, requests: { id: string; handle: strin
 
 let contactQuery = '';
 
+// Relative freshness for the contacts sync stamp. Coarse on purpose — "3 h ago" is a
+// staleness warning, not a log line.
+function syncAgo(at: number): string {
+  const m = Math.round((Date.now() - at) / 60_000);
+  if (m < 2) return 'just now';
+  if (m < 60) return `${m} min ago`;
+  const h = Math.round(m / 60);
+  if (h < 48) return `${h} h ago`;
+  return `${Math.round(h / 24)} days ago`;
+}
+
 async function contactsTab(main: HTMLElement, notice = ''): Promise<void> {
   const contacts = (await send({ type: 'contacts' })).contacts ?? [];
+  // The last COMPLETE account sync (background stamps it). Absent = this vault never
+  // synced (signed out / local-only) — then the stamp stays blank rather than inventing one.
+  const lastSyncAt = (await chrome.storage.local.get('rsn.lastSync'))['rsn.lastSync'] as number | undefined;
   // The empty state is the growth moment: a new user's friends don't have Ekko yet, and
   // "share your invite from the Identity tab" was homework. Hand them the message instead.
   const myName = contacts.length === 0 ? (await send({ type: 'invite' })).username : undefined;
@@ -400,7 +414,8 @@ async function contactsTab(main: HTMLElement, notice = ''): Promise<void> {
              <div class="pitch" style="margin-top:8px">${esc(inviteMessage(myName))}</div>
              <button id="invitePitch" class="btn icon block" style="margin-top:8px">${I.copy}<span>Copy message</span></button>`)
       }</div>
-    </div>`;
+    </div>
+    <p class="hint center" id="syncStamp">${lastSyncAt ? `Contacts synced ${syncAgo(lastSyncAt)}` : ''}</p>`;
   $('#invitePitch')?.addEventListener('click', () => copyFeedback($('#invitePitch'), inviteMessage(myName)));
 
   const add = $<HTMLButtonElement>('#add');
@@ -427,6 +442,16 @@ async function contactsTab(main: HTMLElement, notice = ''): Promise<void> {
     // suggestion, a pending bubble). One rescan per sync keeps every tab honest.
     if (res.ok) void broadcastRescan();
     if (!main.isConnected) return;
+    // Freshness, said honestly: a completed sync reads "just now"; a sync that could not
+    // run against a stale stamp says so — the whole point is that a flaky connection must
+    // not silently present old contacts as current. Benign non-network outcomes
+    // (signed out, no handle yet) leave the stamp alone: the old timestamp is still true.
+    const stamp = document.getElementById('syncStamp');
+    if (stamp) {
+      if (res.ok) stamp.textContent = 'Contacts synced just now';
+      else if (lastSyncAt && res.error !== 'signed-out' && res.error !== 'no-handle' && res.error !== 'locked')
+        stamp.textContent = `Couldn’t reach Ekko — contacts as of ${syncAgo(lastSyncAt)}`;
+    }
     renderRequests(main, res.requests ?? []);
     const n = res.restoredContacts ?? 0;
     if (n > 0) {
