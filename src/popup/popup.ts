@@ -1070,9 +1070,24 @@ async function settingsTab(main: HTMLElement): Promise<void> {
 
     <div class="card">
       <div class="row"><div class="grow"><div class="strong">Suggest encryption automatically</div>
-        <div class="muted">When enabled, Ekko checks a one-way code for the open account. Only verified account links can become suggestions. Anonymous mode never contacts the directory.</div></div>
+        <div class="muted">Only for chats with people not in your contacts yet: Ekko sends the directory a one-way code of the open chat’s handle. Only verified account links can become suggestions. Anonymous mode never contacts the directory.</div></div>
         <label class="switch"><input type="checkbox" id="discoverToggle" aria-label="Suggest encryption automatically" ${discoverOn ? 'checked' : ''} /><span class="track"></span></label></div>
       <div id="discoverMsg" class="msg err" role="status"></div>
+    </div>
+
+    <div class="card">
+      <div class="strong">Get discovered on Telegram</div>
+      <div class="muted">Prove a Telegram account is yours, and people who chat with it can get an “on Ekko” suggestion. Verification exists for Telegram only so far — on other platforms people reach you through invites and connections. You can remove your listing any time.</div>
+      <div class="row" style="margin-top:8px">
+        <button id="verifyStart" class="btn grow">Verify my Telegram</button>
+        <button id="verifyUnlink" class="btn ghost">Remove listing</button>
+      </div>
+      <div id="verifyBox" class="hidden" style="margin-top:10px">
+        <p class="muted">Send this code to <strong id="verifyBot"></strong> on Telegram, from the account you’re verifying:</p>
+        <div id="verifyCode" class="mono" style="font-size:15px;margin:6px 0" translate="no"></div>
+        <p class="muted" id="verifyWait">Waiting for the bot… this updates by itself. The code works for 15 minutes.</p>
+      </div>
+      <div id="verifyMsg" class="msg" role="status"></div>
     </div>
 
     <div class="card">
@@ -1168,6 +1183,61 @@ async function settingsTab(main: HTMLElement): Promise<void> {
       res.error === 'no-handle'
         ? 'Claim an Ekko handle before enabling directory suggestions.'
         : 'Ekko couldn’t save this privacy setting. Nothing changed.';
+  });
+  // The bot ceremony (docs/DIRECTORY.md): fetch a one-time code, show it, poll until the bot
+  // sees it. The verify lands server-side even if the popup closes mid-wait, so reopening and
+  // running it again is cheap — which is also why there is no persisted ceremony state here.
+  const verifyErr = (e: string): string =>
+    e === 'no-handle' || e === 'no-account'
+      ? 'Claim an Ekko handle first — a listing needs an account to point at.'
+      : e === 'verify-unavailable'
+        ? 'This directory has no Telegram verifier bot yet.'
+        : e === 'verify-expired'
+          ? 'That code expired. Start again for a fresh one.'
+          : 'Ekko couldn’t reach the directory. Nothing changed — try again.';
+  $('#verifyStart').addEventListener('click', async () => {
+    const btn = $<HTMLButtonElement>('#verifyStart');
+    const msg = $('#verifyMsg');
+    msg.className = 'msg';
+    msg.textContent = '';
+    setBusy(btn, true);
+    const res = await send({ type: 'verifyStart', platform: 'telegram' });
+    setBusy(btn, false);
+    if (res.error) {
+      msg.className = 'msg err';
+      msg.textContent = verifyErr(res.error);
+      return;
+    }
+    $('#verifyBot').textContent = `@${res.botUsername}`;
+    const codeEl = $('#verifyCode');
+    codeEl.textContent = res.code ?? '';
+    const mins = res.expiresAt ? Math.max(1, Math.round((res.expiresAt - Date.now()) / 60_000)) : 15;
+    $('#verifyWait').textContent = `Waiting for the bot… this updates by itself. The code works for ${mins} minutes.`;
+    $('#verifyBox').classList.remove('hidden');
+    const checkId = res.checkId!;
+    const timer = setInterval(async () => {
+      if (!document.contains(codeEl)) return void clearInterval(timer); // popup re-rendered or closed
+      const c = await send({ type: 'verifyCheck', checkId });
+      if (c.verifyStatus === 'pending' || c.error === 'directory-unreachable') return; // keep waiting
+      clearInterval(timer);
+      $('#verifyBox').classList.add('hidden');
+      if (c.verifyStatus === 'verified') {
+        msg.className = 'msg ok';
+        msg.textContent = `Verified${c.handle ? ` as @${c.handle}` : ''}. Telegram chats with this account can now suggest Ekko.`;
+      } else {
+        msg.className = 'msg err';
+        msg.textContent = verifyErr(c.error ?? '');
+      }
+    }, 3000);
+  });
+  $('#verifyUnlink').addEventListener('click', async () => {
+    const btn = $<HTMLButtonElement>('#verifyUnlink');
+    const msg = $('#verifyMsg');
+    setBusy(btn, true);
+    const res = await send({ type: 'unlinkPlatform', platform: 'telegram' });
+    setBusy(btn, false);
+    msg.className = res.error ? 'msg err' : 'msg ok';
+    msg.textContent = res.error ? verifyErr(res.error) : 'Removed. Telegram lookups for you now come back empty.';
   });
   $<HTMLInputElement>('#debugToggle').addEventListener('change', (e) =>
     void chrome.storage.local.set({ 'rsn.debug': (e.target as HTMLInputElement).checked }),

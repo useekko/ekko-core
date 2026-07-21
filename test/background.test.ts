@@ -608,6 +608,67 @@ describe('background handler', () => {
     }
   });
 
+  it('ownership ceremony: verifyStart issues via the authed challenge, verifyCheck polls, unlinkPlatform de-lists', async () => {
+    const server = generateIdentity();
+    const seen: string[] = [];
+    let checkCalls = 0;
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async (url: string | URL) => {
+      const u = String(url);
+      seen.push(u);
+      if (u.endsWith('/auth/challenge'))
+        return new Response(JSON.stringify({ challengeId: 'v-c1', challenge: b64uEncode(server.xPub) }), { status: 200 });
+      if (u.endsWith('/verify/start'))
+        return new Response(
+          JSON.stringify({
+            code: 'EKKO-ABCDEF',
+            checkId: 'cap-1',
+            expiresAt: 1234,
+            bot: { platform: 'telegram', username: 'EkkoVerifyBot' },
+          }),
+          { status: 200 },
+        );
+      if (u.includes('/verify/check')) {
+        checkCalls++;
+        return checkCalls === 1
+          ? new Response(JSON.stringify({ status: 'pending', platform: 'telegram' }), { status: 200 })
+          : new Response(JSON.stringify({ status: 'verified', platform: 'telegram', handle: 'kirusha' }), { status: 200 });
+      }
+      if (u.endsWith('/handles/unlink')) return new Response(JSON.stringify({ ok: true }), { status: 200 });
+      throw new Error(`unexpected ${u}`);
+    }) as typeof fetch;
+    try {
+      const started = await call({ type: 'verifyStart', platform: 'Telegram' });
+      expect(started.ok).toBe(true);
+      expect(started.code).toBe('EKKO-ABCDEF');
+      expect(started.botUsername).toBe('EkkoVerifyBot');
+      expect(seen).toEqual(['https://useekko.app/auth/challenge', 'https://useekko.app/verify/start']);
+
+      // Polling: pending first, then the bot-observed handle rides back.
+      expect((await call({ type: 'verifyCheck', checkId: 'cap-1' })).verifyStatus).toBe('pending');
+      const done = await call({ type: 'verifyCheck', checkId: 'cap-1' });
+      expect(done.verifyStatus).toBe('verified');
+      expect(done.handle).toBe('kirusha');
+
+      // De-listing goes through the same authed door.
+      seen.length = 0;
+      expect((await call({ type: 'unlinkPlatform', platform: 'telegram' })).ok).toBe(true);
+      expect(seen).toEqual(['https://useekko.app/auth/challenge', 'https://useekko.app/handles/unlink']);
+
+      // A directory without the bot reports itself honestly, and a dead capability id reads
+      // as one thing: start over.
+      globalThis.fetch = (async (url: string | URL) =>
+        String(url).endsWith('/auth/challenge')
+          ? new Response(JSON.stringify({ challengeId: 'v-c2', challenge: b64uEncode(server.xPub) }), { status: 200 })
+          : new Response(JSON.stringify({ error: 'verify-unavailable' }), { status: 503 })) as typeof fetch;
+      expect((await call({ type: 'verifyStart', platform: 'telegram' })).error).toBe('verify-unavailable');
+      globalThis.fetch = (async () => new Response(JSON.stringify({ error: 'not-found' }), { status: 404 })) as typeof fetch;
+      expect((await call({ type: 'verifyCheck', checkId: 'gone' })).error).toBe('verify-expired');
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+
   it('updateCheck: skips nightly/prereleases, caches for a day, and never errors offline', async () => {
     const realFetch = globalThis.fetch;
     let fetches = 0;
