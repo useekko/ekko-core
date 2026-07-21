@@ -68,6 +68,15 @@ export type Req =
   // peer's own linked socials keep merging over same-platform entries on sync.
   | { type: 'setContactHandles'; fingerprint: string; handles: Record<string, string> }
   | { type: 'setDiscover'; enabled: boolean } // auto-discovery lookups on/off (default off)
+  // --- platform ownership verification (the other side of discovery: being FOUND). Start the
+  // docs/DIRECTORY.md bot ceremony: the directory issues a one-time code, the user sends it to
+  // the Ekko bot FROM the messenger account being claimed, the bot's inbound message verifies.
+  // Telegram-only until more platform verifiers exist server-side. verifyCheck polls by
+  // capability id — the verify itself lands server-side even if the popup closes mid-ceremony.
+  | { type: 'verifyStart'; platform: string }
+  | { type: 'verifyCheck'; checkId: string }
+  // Self-serve de-listing: remove MY directory mapping(s) for a platform. Idempotent.
+  | { type: 'unlinkPlatform'; platform: string }
   // Point this install at a different (self-hosted) directory. https-only; empty string
   // resets to the default. The directory is discovery, never a root of trust — but it does
   // see lookup metadata, which is exactly why self-hosting it is supported.
@@ -146,6 +155,13 @@ export interface Res {
   sessionOff?: string[]; // platforms paused until the browser closes (glyph power button)
   tagline?: boolean; // whether to append the Ekko tag to sent ciphertext
   discover?: boolean; // whether auto-discovery lookups are enabled
+  // verify ceremony: the one-time code to send, the capability id to poll, where to send it.
+  // A completed ceremony reports the platform-asserted identifier via the shared `handle`.
+  code?: string;
+  checkId?: string;
+  expiresAt?: number;
+  botUsername?: string;
+  verifyStatus?: 'pending' | 'verified';
   keepUnlocked?: boolean; // whether the master key survives a browser restart (opt-in)
   // My linked socials (platform -> handle), display only — a read-only mirror of the
   // account's account_handles, refreshed by acctSync. Managed on the account, never here.

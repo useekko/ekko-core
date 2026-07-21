@@ -1361,6 +1361,80 @@ async function handle(req: Req, sender?: chrome.runtime.MessageSender): Promise<
       return { ok: true, invite };
     }
 
+    // The client half of the ownership ceremony (docs/DIRECTORY.md): authenticate the device
+    // key, get a one-time code to send to the Ekko bot from the platform account being
+    // claimed. The bot's inbound message is what verifies — this only issues.
+    case 'verifyStart': {
+      const v = await getVault();
+      if (!v) return { error: 'locked' };
+      if (!v.username) return { error: 'no-handle' }; // listing requires the claimed-@handle account
+      const platform = String(req.platform).toLowerCase();
+      if (!PLATFORM_RE.test(platform)) return { error: 'bad-platform' };
+      const directory = await secureDirectoryUrl();
+      if (!directory) return { error: 'directory-insecure' };
+      try {
+        const cred = await proveKey(directory, v.identity);
+        if ('error' in cred) return cred;
+        const r = await fetch(`${directory}/verify/start`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ ...cred, platform }),
+        });
+        if (r.status === 503) return { error: 'verify-unavailable' };
+        if (r.status === 404) return { error: 'no-account' };
+        if (!r.ok) return { error: 'directory-error' };
+        const out = (await r.json()) as { code?: string; checkId?: string; expiresAt?: number; bot?: { username?: string } };
+        if (!out.code || !out.checkId || !out.bot?.username) return { error: 'directory-error' };
+        return { ok: true, code: out.code, checkId: out.checkId, expiresAt: out.expiresAt, botUsername: out.bot.username };
+      } catch {
+        return { error: 'directory-unreachable' };
+      }
+    }
+
+    // Poll the ceremony by capability id. The server 404s unknown AND expired ids alike, so
+    // both surface as 'verify-expired' — starting over is cheap, a fresh code fixes it.
+    case 'verifyCheck': {
+      if (!(await getVault())) return { error: 'locked' };
+      const directory = await secureDirectoryUrl();
+      if (!directory) return { error: 'directory-insecure' };
+      try {
+        const r = await fetch(`${directory}/verify/check?id=${encodeURIComponent(String(req.checkId))}`);
+        if (r.status === 404) return { error: 'verify-expired' };
+        if (!r.ok) return { error: 'directory-error' };
+        const out = (await r.json()) as { status?: string; handle?: string };
+        return out.status === 'verified'
+          ? { ok: true, verifyStatus: 'verified', handle: out.handle }
+          : { ok: true, verifyStatus: 'pending' };
+      } catch {
+        return { error: 'directory-unreachable' };
+      }
+    }
+
+    // Self-serve de-listing, the exit the ceremony must always have. Idempotent on the
+    // server ("gone is gone"), so the popup offers it without knowing listing state.
+    case 'unlinkPlatform': {
+      const v = await getVault();
+      if (!v) return { error: 'locked' };
+      const platform = String(req.platform).toLowerCase();
+      if (!PLATFORM_RE.test(platform)) return { error: 'bad-platform' };
+      const directory = await secureDirectoryUrl();
+      if (!directory) return { error: 'directory-insecure' };
+      try {
+        const cred = await proveKey(directory, v.identity);
+        if ('error' in cred) return cred;
+        const r = await fetch(`${directory}/handles/unlink`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ ...cred, platform }),
+        });
+        if (r.status === 404) return { error: 'no-account' };
+        if (!r.ok) return { error: 'directory-error' };
+        return { ok: true };
+      } catch {
+        return { error: 'directory-unreachable' };
+      }
+    }
+
     // Manually edit a contact's messenger handles. Empty value = remove; the whole map is
     // replaced after normalization (same canonical form as discovery, or recognition and
     // lookups would never match what sync or the adapters produce).
